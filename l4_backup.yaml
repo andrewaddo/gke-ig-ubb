@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "3"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"triton-recml","gpu":"l4"},"name":"triton-recml-l4","namespace":"default"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"triton-recml","gpu":"l4"}},"template":{"metadata":{"labels":{"app":"triton-recml","gpu":"l4"}},"spec":{"containers":[{"args":["--model-repository=/models","--allow-metrics=true","--strict-model-config=false"],"command":["/opt/tritonserver/bin/tritonserver"],"image":"nvcr.io/nvidia/tritonserver:25.05-py3","name":"triton","ports":[{"containerPort":8000,"name":"http"},{"containerPort":8002,"name":"metrics"}],"resources":{"limits":{"cpu":"3900m","memory":"8Gi","nvidia.com/gpu":1},"requests":{"cpu":"100m","memory":"2Gi"}},"volumeMounts":[{"mountPath":"/models","name":"model-repository"}]}],"initContainers":[{"command":["python3","-c","import os\nimport torch\nimport torch.nn as nn\nclass HeavyModel(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.layer = nn.Linear(1024, 1024)\n    def forward(self, x):\n        # Do some math to make it not instantaneous\n        for _ in range(1000):\n            x = self.layer(x)\n            x = torch.relu(x)\n        return x\nmodel = HeavyModel()\ndummy_input = torch.randn(1, 1024)\ntraced = torch.jit.trace(model, dummy_input)\nos.makedirs(\"/models/recml-model/1\", exist_ok=True)\ntraced.save(\"/models/recml-model/1/model.pt\")\nconfig = \"\"\"name: \"recml-model\"\nplatform: \"pytorch_libtorch\"\nmax_batch_size: 0\ninput [ { name: \"INPUT__0\", data_type: TYPE_FP32, dims: [ 1, 1024 ] } ]\noutput [ { name: \"OUTPUT__0\", data_type: TYPE_FP32, dims: [ 1, 1024 ] } ]\ninstance_group [ { count: 1, kind: KIND_GPU } ]\n\"\"\"\nwith open(\"/models/recml-model/config.pbtxt\", \"w\") as f:\n    f.write(config)\n"],"image":"nvcr.io/nvidia/pytorch:25.05-py3","name":"generate-model","volumeMounts":[{"mountPath":"/models","name":"model-repository"}]}],"nodeSelector":{"cloud.google.com/gke-accelerator":"nvidia-l4"},"tolerations":[{"effect":"NoSchedule","key":"nvidia.com/gpu","operator":"Exists"}],"volumes":[{"emptyDir":{},"name":"model-repository"}]}}}}
+  creationTimestamp: "2026-04-30T05:29:04Z"
+  generation: 4
+  labels:
+    app: triton-recml
+    gpu: l4
+  name: triton-recml-l4
+  namespace: default
+  resourceVersion: "1777528476093583001"
+  uid: 8d27fccc-913a-4fdc-9c2b-cf3d1aa5e81d
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: triton-recml
+      gpu: l4
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: triton-recml
+        gpu: l4
+    spec:
+      containers:
+      - args:
+        - --model-repository=/models
+        - --allow-metrics=true
+        - --strict-model-config=false
+        command:
+        - /opt/tritonserver/bin/tritonserver
+        image: nvcr.io/nvidia/tritonserver:25.05-py3
+        imagePullPolicy: IfNotPresent
+        name: triton
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 8002
+          name: metrics
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 3900m
+            memory: 8Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: 100m
+            memory: 2Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /models
+          name: model-repository
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - python3
+        - -c
+        - |
+          import os
+          import torch
+          import torch.nn as nn
+          class HeavyModel(nn.Module):
+              def __init__(self):
+                  super().__init__()
+                  self.layer = nn.Linear(1024, 1024)
+              def forward(self, x):
+                  # Do some math to make it not instantaneous
+                  for _ in range(1000):
+                      x = self.layer(x)
+                      x = torch.relu(x)
+                  return x
+          model = HeavyModel()
+          dummy_input = torch.randn(1, 1024)
+          traced = torch.jit.trace(model, dummy_input)
+          os.makedirs("/models/recml-model/1", exist_ok=True)
+          traced.save("/models/recml-model/1/model.pt")
+          config = """name: "recml-model"
+          platform: "pytorch_libtorch"
+          max_batch_size: 0
+          input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 1024 ] } ]
+          output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 1024 ] } ]
+          instance_group [ { count: 1, kind: KIND_GPU } ]
+          """
+          with open("/models/recml-model/config.pbtxt", "w") as f:
+              f.write(config)
+        image: nvcr.io/nvidia/pytorch:25.05-py3
+        imagePullPolicy: IfNotPresent
+        name: generate-model
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /models
+          name: model-repository
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-l4
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+      volumes:
+      - emptyDir: {}
+        name: model-repository
+status:
+  availableReplicas: 2
+  conditions:
+  - lastTransitionTime: "2026-04-30T05:29:04Z"
+    lastUpdateTime: "2026-04-30T05:53:51Z"
+    message: ReplicaSet "triton-recml-l4-75d4746f48" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2026-04-30T05:54:36Z"
+    lastUpdateTime: "2026-04-30T05:54:36Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 4
+  readyReplicas: 2
+  replicas: 2
+  terminatingReplicas: 0
+  updatedReplicas: 2

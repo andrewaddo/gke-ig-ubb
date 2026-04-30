@@ -1,0 +1,71 @@
+# Unified Service for both L4 and G4 deployments
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-svc
+spec:
+  selector:
+    app: triton-recml
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+# Apply IN_FLIGHT balancing mode to the unified Service
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: ubb-unified
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: triton-svc
+  default:
+    balancingMode: IN_FLIGHT
+    maxInFlightRequestsPerEndpoint: 5
+    trafficDuration: LONG
+---
+# HealthCheckPolicy for the unified Service
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: svc-health-unified
+  namespace: default
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: triton-svc
+  default:
+    checkIntervalSec: 5
+    timeoutSec: 5
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /v2/health/ready
+        port: 8000
+---
+# Gateway
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: triton-ubb-gateway
+spec:
+  gatewayClassName: gke-l7-rilb
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+---
+# HTTPRoute routing to the unified Service
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: triton-ubb-route
+spec:
+  parentRefs:
+  - name: triton-ubb-gateway
+  rules:
+  - backendRefs:
+    - name: triton-svc
+      port: 8000

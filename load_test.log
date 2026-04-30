@@ -1,0 +1,14 @@
+Starting load test against http://10.138.0.111:80/v2/models/recml-model/infer
+Concurrency: 30, Total Requests: 1500
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Error status: <urlopen error timed out>
+Completed in 250.32s
+Success: 0, Errors: 1500
+Throughput: 5.99 req/s

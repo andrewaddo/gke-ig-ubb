@@ -1,0 +1,81 @@
+# Wrap deployments in standard Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-svc-l4
+spec:
+  selector:
+    app: triton-recml-l4
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-svc-g4
+spec:
+  selector:
+    app: triton-recml-g4
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+# Apply GPU Utilization Load Balancing directly to the Services
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: ubb-l4
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: triton-svc-l4
+  default:
+    balancingMode: CUSTOM_METRICS
+    customMetrics:
+    - name: gke.gpu_duty_cycle
+      maxUtilizationPercent: 80
+      dryRun: false
+---
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: ubb-g4
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: triton-svc-g4
+  default:
+    balancingMode: CUSTOM_METRICS
+    customMetrics:
+    - name: gke.gpu_duty_cycle
+      maxUtilizationPercent: 80
+      dryRun: false
+---
+# Gateway and HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: triton-ubb-gateway
+spec:
+  gatewayClassName: gke-l7-rilb
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: triton-ubb-route
+spec:
+  parentRefs:
+  - name: triton-ubb-gateway
+  rules:
+  - backendRefs:
+    - name: triton-svc-l4
+      port: 8000
+    - name: triton-svc-g4
+      port: 8000

@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-recml-l4
+spec:
+  template:
+    spec:
+      containers:
+      - name: triton
+        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false", "--log-verbose=1"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-recml-g4
+spec:
+  template:
+    spec:
+      containers:
+      - name: triton
+        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false", "--log-verbose=1"]
