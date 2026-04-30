@@ -1,3 +1,4 @@
+# HPAs using simplified Pod metrics
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -10,10 +11,13 @@ spec:
   minReplicas: 1
   maxReplicas: 5
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target: { type: Utilization, averageUtilization: 70 }
+  - type: Pods
+    pods:
+      metric:
+        name: autoscaling.gke.io|l4-gpu-util|nv_gpu_utilization
+      target:
+        type: AverageValue
+        averageValue: "600m" # 0.6 in milli-units
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -27,7 +31,10 @@ spec:
   minReplicas: 1
   maxReplicas: 5
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target: { type: Utilization, averageUtilization: 70 }
+  - type: Pods
+    pods:
+      metric:
+        name: autoscaling.gke.io|g4-gpu-util|nv_gpu_utilization
+      target:
+        type: AverageValue
+        averageValue: "600m"

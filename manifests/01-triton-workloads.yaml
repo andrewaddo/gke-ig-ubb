@@ -3,14 +3,20 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: triton-recml-l4
-  labels: { app: triton-recml-l4 }
+  labels:
+    app: triton-recml
+    gpu: l4
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: triton-recml-l4 }
+    matchLabels:
+      app: triton-recml
+      gpu: l4
   template:
     metadata:
-      labels: { app: triton-recml-l4 }
+      labels:
+        app: triton-recml
+        gpu: l4
     spec:
       nodeSelector:
         cloud.google.com/gke-accelerator: nvidia-l4
@@ -19,8 +25,8 @@ spec:
         operator: "Exists"
         effect: "NoSchedule"
       initContainers:
-      - name: generate-dlrm
-        image: nvcr.io/nvidia/pytorch:24.01-py3
+      - name: generate-model
+        image: nvcr.io/nvidia/pytorch:25.05-py3
         command:
         - python3
         - -c
@@ -28,34 +34,27 @@ spec:
           import os
           import torch
           import torch.nn as nn
-          class SimpleDLRM(nn.Module):
+          class HeavyModel(nn.Module):
               def __init__(self):
                   super().__init__()
-                  self.bottom_mlp = nn.Sequential(nn.Linear(13, 512), nn.ReLU(), nn.Linear(512, 256), nn.ReLU())
-                  self.embeddings = nn.ModuleList([nn.Embedding(10000, 64) for _ in range(26)])
-                  self.top_mlp = nn.Sequential(nn.Linear(256 + 26 * 64, 1024), nn.ReLU(), nn.Linear(1024, 1), nn.Sigmoid())
-              def forward(self, dense_x, sparse_x):
-                  bottom_out = self.bottom_mlp(dense_x)
-                  emb_outs = []
-                  for i, emb in enumerate(self.embeddings):
-                      emb_outs.append(emb(sparse_x[:, i]))
-                  x = torch.cat([bottom_out] + emb_outs, dim=1)
-                  return self.top_mlp(x)
-          model = SimpleDLRM()
-          dense = torch.randn(2, 13)
-          sparse = torch.randint(0, 10000, (2, 26))
-          traced = torch.jit.trace(model, (dense, sparse))
+                  self.layer = nn.Linear(4096, 4096)
+              def forward(self, x):
+                  # Do some math to make it not instantaneous
+                  for _ in range(1000):
+                      x = self.layer(x)
+                      x = torch.relu(x)
+                  return x
+          model = HeavyModel()
+          dummy_input = torch.randn(1, 4096)
+          traced = torch.jit.trace(model, dummy_input)
           os.makedirs("/models/recml-model/1", exist_ok=True)
           traced.save("/models/recml-model/1/model.pt")
           config = """name: "recml-model"
           platform: "pytorch_libtorch"
-          max_batch_size: 1024
-          input [
-            { name: "dense_x__0", data_type: TYPE_FP32, dims: [ 13 ] },
-            { name: "sparse_x__1", data_type: TYPE_INT64, dims: [ 26 ] }
-          ]
-          output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1 ] } ]
-          instance_group [ { count: 4, kind: KIND_GPU } ]
+          max_batch_size: 0
+          input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
+          output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
+          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -64,12 +63,12 @@ spec:
           mountPath: /models
       containers:
       - name: triton
-        image: nvcr.io/nvidia/tritonserver:24.01-py3
+        image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
         resources:
-          requests: { cpu: "3", memory: "8Gi" } # Using 3 to ensure EPP and system pods fit
-          limits: { cpu: "4", memory: "8Gi", nvidia.com/gpu: 1 }
+          requests: { cpu: "100m", memory: "2Gi" }
+          limits: { cpu: "3900m", memory: "8Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
@@ -87,14 +86,20 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: triton-recml-g4
-  labels: { app: triton-recml-g4 }
+  labels:
+    app: triton-recml
+    gpu: g4
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: triton-recml-g4 }
+    matchLabels:
+      app: triton-recml
+      gpu: g4
   template:
     metadata:
-      labels: { app: triton-recml-g4 }
+      labels:
+        app: triton-recml
+        gpu: g4
     spec:
       nodeSelector:
         cloud.google.com/gke-accelerator: nvidia-rtx-pro-6000
@@ -103,8 +108,8 @@ spec:
         operator: "Exists"
         effect: "NoSchedule"
       initContainers:
-      - name: generate-dlrm
-        image: nvcr.io/nvidia/pytorch:24.01-py3
+      - name: generate-model
+        image: nvcr.io/nvidia/pytorch:25.05-py3
         command:
         - python3
         - -c
@@ -112,34 +117,27 @@ spec:
           import os
           import torch
           import torch.nn as nn
-          class SimpleDLRM(nn.Module):
+          class HeavyModel(nn.Module):
               def __init__(self):
                   super().__init__()
-                  self.bottom_mlp = nn.Sequential(nn.Linear(13, 512), nn.ReLU(), nn.Linear(512, 256), nn.ReLU())
-                  self.embeddings = nn.ModuleList([nn.Embedding(10000, 64) for _ in range(26)])
-                  self.top_mlp = nn.Sequential(nn.Linear(256 + 26 * 64, 1024), nn.ReLU(), nn.Linear(1024, 1), nn.Sigmoid())
-              def forward(self, dense_x, sparse_x):
-                  bottom_out = self.bottom_mlp(dense_x)
-                  emb_outs = []
-                  for i, emb in enumerate(self.embeddings):
-                      emb_outs.append(emb(sparse_x[:, i]))
-                  x = torch.cat([bottom_out] + emb_outs, dim=1)
-                  return self.top_mlp(x)
-          model = SimpleDLRM()
-          dense = torch.randn(2, 13)
-          sparse = torch.randint(0, 10000, (2, 26))
-          traced = torch.jit.trace(model, (dense, sparse))
+                  self.layer = nn.Linear(4096, 4096)
+              def forward(self, x):
+                  # Do some math to make it not instantaneous
+                  for _ in range(1000):
+                      x = self.layer(x)
+                      x = torch.relu(x)
+                  return x
+          model = HeavyModel()
+          dummy_input = torch.randn(1, 4096)
+          traced = torch.jit.trace(model, dummy_input)
           os.makedirs("/models/recml-model/1", exist_ok=True)
           traced.save("/models/recml-model/1/model.pt")
           config = """name: "recml-model"
           platform: "pytorch_libtorch"
-          max_batch_size: 1024
-          input [
-            { name: "dense_x__0", data_type: TYPE_FP32, dims: [ 13 ] },
-            { name: "sparse_x__1", data_type: TYPE_INT64, dims: [ 26 ] }
-          ]
-          output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1 ] } ]
-          instance_group [ { count: 4, kind: KIND_GPU } ]
+          max_batch_size: 0
+          input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
+          output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
+          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -148,12 +146,12 @@ spec:
           mountPath: /models
       containers:
       - name: triton
-        image: nvcr.io/nvidia/tritonserver:24.01-py3
+        image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
         resources:
-          requests: { cpu: "4", memory: "8Gi" }
-          limits: { cpu: "4", memory: "8Gi", nvidia.com/gpu: 1 }
+          requests: { cpu: "100m", memory: "2Gi" }
+          limits: { cpu: "16", memory: "32Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
