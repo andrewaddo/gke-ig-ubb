@@ -1,0 +1,43 @@
+# Gateway Configuration
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: triton-inference-gateway
+  namespace: default
+spec:
+  gatewayClassName: gke-l7-rilb
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+---
+# InferenceObjective linking the model to the unified pool
+apiVersion: inference.networking.x-k8s.io/v1alpha2
+kind: InferenceObjective
+metadata:
+  name: recml-objective
+  namespace: default
+spec:
+  priority: 10
+  poolRef:
+    name: unified-recml-pool
+    group: "inference.networking.k8s.io"
+---
+# HTTPRoute routing traffic to the InferencePool
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: triton-ubb-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: triton-inference-gateway
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: unified-recml-pool
+      group: "inference.networking.k8s.io"
+      kind: InferencePool

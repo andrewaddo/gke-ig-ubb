@@ -11,6 +11,56 @@ This demo showcases GKE Inference Gateway's ability to intelligently route reque
 
 ---
 
+## Design Rationale: GKE Inference Gateway vs. UBB
+
+For this heterogeneous GPU balancing demo, we evaluated two primary routing strategies. While standard **Utilization-Based Balancing (UBB)** is stable and easier to configure, **GKE Inference Gateway** was chosen as the superior architectural path for the following reasons:
+
+| Feature | standard GKE Gateway + UBB | GKE Inference Gateway (GKE IG) |
+| :--- | :--- | :--- |
+| **Granularity** | **Zonal (NEG):** Balances based on the average utilization of a zone. | **Per-Pod:** Scrapes and makes decisions based on individual pod state. |
+| **Routing Logic** | **Metric-Based:** Relies on GCLB control plane aggregation (10-30s delay). | **Request-Based:** Per-request gRPC call (ext-proc) for millisecond precision. |
+| **Telemetry** | **Cloud Monitoring:** Metrics must be exported to and read from GCP APIs. | **Direct Scrape:** Endpoint Picker (EPP) scrapes Triton metrics directly. |
+| **Heterogeneous Fit** | **Reactive:** Adjusts as it sees queues back up over time. | **Proactive:** Instantly shifts traffic to faster pods (G4) as soon as L4s show load. |
+
+### Conclusion
+GKE Inference Gateway provides the **high-precision, state-aware routing** necessary to exploit the 14x performance difference between our L4 and G4 GPUs. By using a custom-configured Endpoint Picker to monitor Triton metrics, we achieve near-instantaneous balancing that is not possible with the standard asynchronous metric aggregation used by UBB.
+
+---
+
+## Implementation Detail: Triton (RecML) vs. vLLM (LLM)
+
+A significant finding during the implementation of the GKE Inference Gateway was the default behavior of the **Endpoint Picker (EPP)**. 
+
+### The Challenge
+By default, the GKE Inference Gateway EPP is optimized for **Large Language Models (LLMs)** using the **OpenAI API specification** (e.g., vLLM). It expects a JSON request body containing a `prompt` or `messages` field, which it parses to enable advanced features like Prefix Cache Aware Routing.
+
+Our **Triton RecML** workload uses the **KServe v2 / Triton API**, which sends a payload containing an `inputs` array instead of a `prompt`. This caused the EPP to return a `400 Bad Request` as it failed to find the expected LLM metadata.
+
+### The Solution: Passthrough Parser
+To support non-LLM workloads like Triton RecML, we must explicitly configure the EPP to use the **`passthrough-parser`**. This tells the Inference Gateway to skip body inspection and purely apply scheduling logic (like `LeastRequests`) based on pod health and concurrency.
+
+---
+
+
+A critical nuance of the GKE Inference Gateway architecture (introduced in GKE 1.34+) is the distinction between what GKE manages and what the user must provide.
+
+**What GKE Manages:**
+*   **The CRD Schema:** GKE natively understands `kind: InferencePool` and `kind: InferenceObjective`. You do not need to install these Custom Resource Definitions.
+*   **The Gateway Controller:** When the Gateway reads an `HTTPRoute` pointing to an `InferencePool`, it automatically configures the underlying Google Cloud Load Balancer.
+
+**What GKE Does NOT Manage:**
+*   **The Endpoint Picker (EPP):** The EPP is the actual "brain" (a gRPC service) that receives `ext-proc` calls from Envoy to make per-request routing decisions. **GKE does not deploy this automatically.** If you create an `InferencePool` without an EPP, traffic will not route.
+
+**The Solution: Helm**
+While it is possible to manually write the Deployment, Service, ConfigMap, and RBAC manifests for the EPP, it is highly error-prone due to rapidly changing flags and API versions. The official Google-recommended approach is to use the `gateway-api-inference-extension` Helm chart. 
+
+The Helm chart abstracts this complexity by:
+1.  Deploying the correct version of the EPP container.
+2.  Generating the `InferencePool` resource.
+3.  Automatically wiring the `endpointPickerRef` to the newly created EPP Service.
+
+---
+
 ## Key Findings & Performance Metrics
 
 During our load testing, we observed significant differences between the heterogeneous hardware pools executing the same PyTorch "HeavyModel" (4096x4096 matrix multiplication, 1000 iterations):
@@ -45,25 +95,59 @@ During our load testing, we observed significant differences between the heterog
    * *Issue:* Spawning thousands of parallel `curl` background processes in a naive bash script exhausted the `perf-client` pod's connection limits and caused Gateway 504 timeouts.
    * *Fix:* Used a batched load testing script with limited concurrency, utilizing a pre-generated JSON payload file to avoid shell string escaping issues and reduce client-side CPU overhead.
 
+5. **Triton Payload Parsing via Endpoint Picker:**
+   * *Issue:* The Endpoint Picker (EPP) defaults to the `openai-parser`, which expects a JSON payload containing `prompt` or `messages`. Standard KServe/Triton requests with only `inputs` are rejected with a `400 Bad Request`.
+   * *Fix:* We construct a "Universal Payload" that wraps the standard Triton tensor data alongside dummy `model` and `prompt` fields. This satisfies the EPP's parser, allowing the request to be routed, while Triton ignores the extraneous fields.
+   ```json
+   {
+     "model": "recml-model",
+     "prompt": "dummy",
+     "inputs": [ { "name": "INPUT__0", "shape": [1, 4096], "datatype": "FP32", "data": [0.0] } ]
+   }
+   ```
+
 ---
 
-## Running the Demo
+## Why GCPBackendPolicy is Omitted
+
+In standard GKE Gateway architectures, a `GCPBackendPolicy` is often used to define the `balancingMode` (e.g., `IN_FLIGHT`). However, in the **GKE Inference Gateway** architecture, this policy is omitted for the following reasons:
+
+1.  **EPP Takeover:** The **Endpoint Picker (EPP)** acts as the real-time "brain" for routing. It intercepts every request and selects the optimal Pod IP based on millisecond-fresh metrics.
+2.  **Incompatibility:** Manual `balancingMode` settings in a `GCPBackendPolicy` can conflict with the EPP's intelligent scheduling logic.
+3.  **Managed Intelligence:** The Inference Gateway pattern assumes that the EPP is the authoritative source for load balancing decisions, rendering the static configuration in a `GCPBackendPolicy` redundant.
+
+---
+
 
 ### 1. Deploy the Cluster & Workloads
 ```bash
 ./deploy-cluster.sh
 kubectl apply -f manifests/01-triton-workloads.yaml \
-              -f manifests/02-triton-hpas.yaml \
-              -f manifests/13-unified-in-flight.yaml
+              -f manifests/02-triton-hpas.yaml
 ```
 
-### 2. Generate the Load Test Payload
+### 2. Deploy the Unified InferencePool via Helm
+```bash
+helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool \
+  --version v1.4.0 \
+  --set inferencePool.modelServerType=custom \
+  --set inferencePool.targetPortNumber=8000 \
+  --set inferencePool.modelServers.matchLabels.pool=unified-recml-pool \
+  --set provider.name=gke
+```
+
+### 3. Deploy Gateway and HTTPRoute
+```bash
+kubectl apply -f manifests/13-inference-gateway.yaml
+```
+
+### 4. Generate the Load Test Payload
 Create the heavy payload locally inside a testing pod (e.g., an Ubuntu `perf-client`):
 ```bash
 python3 -c "import json; print(json.dumps({'inputs': [{'name': 'INPUT__0', 'shape': [1, 4096], 'datatype': 'FP32', 'data': [0.0]*4096}]}))" > payload.json
 ```
 
-### 3. Run the Sustained Load Script
+### 5. Run the Sustained Load Script
 You can use `run_load.sh` or execute this directly to simulate sustained traffic:
 ```bash
 GATEWAY_IP=$(kubectl get gateway triton-ubb-gateway -o jsonpath='{.status.addresses[0].value}')
@@ -81,7 +165,7 @@ done
 wait
 ```
 
-### 4. Verify Active-Active Routing & Scaling
+### 6. Verify Active-Active Routing & Scaling
 ```bash
 # Watch the HPA react to nv_gpu_utilization
 kubectl get hpa -w

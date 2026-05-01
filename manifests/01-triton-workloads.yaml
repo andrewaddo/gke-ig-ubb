@@ -5,17 +5,19 @@ metadata:
   name: triton-recml-l4
   labels:
     app: triton-recml
+    pool: unified-recml-pool
     gpu: l4
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: triton-recml
-      gpu: l4
+      pool: unified-recml-pool
   template:
     metadata:
       labels:
         app: triton-recml
+        pool: unified-recml-pool
         gpu: l4
     spec:
       nodeSelector:
@@ -88,17 +90,19 @@ metadata:
   name: triton-recml-g4
   labels:
     app: triton-recml
+    pool: unified-recml-pool
     gpu: g4
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: triton-recml
-      gpu: g4
+      pool: unified-recml-pool
   template:
     metadata:
       labels:
         app: triton-recml
+        pool: unified-recml-pool
         gpu: g4
     spec:
       nodeSelector:
