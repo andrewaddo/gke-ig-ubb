@@ -168,3 +168,11 @@ kubectl get hpa -w
 # Check Triton's internal metrics
 kubectl exec <POD_NAME> -c triton -- curl -s localhost:8002/metrics | grep nv_gpu_utilization
 ```
+### Troubleshooting GKE Native Custom Metrics (HPA `<unknown>`)
+If you notice that the HPA is stuck showing `<unknown>` for the target metric (e.g., `autoscaling.gke.io|g4-gpu-util|nv_gpu_utilization`), it is likely that the internal GKE metrics agent on that specific node has crashed or become stuck trying to export to Cloud Monitoring.
+
+**To fix this:**
+1. Identify the node the pod is running on.
+2. Find the `gke-metrics-agent` DaemonSet pod running on that node.
+3. Delete the pod to force a restart: `kubectl delete pod -n kube-system <agent-pod-name>`.
+4. Wait 2-3 minutes for the metrics pipeline to re-aggregate the time series.
