@@ -37,7 +37,7 @@ By default, the GKE Inference Gateway EPP is optimized for **Large Language Mode
 Our **Triton RecML** workload uses the **KServe v2 / Triton API**, which sends a payload containing an `inputs` array instead of a `prompt`. This caused the EPP to return a `400 Bad Request` as it failed to find the expected LLM metadata.
 
 ### The Solution: Passthrough Parser
-To support non-LLM workloads like Triton RecML, we must explicitly configure the EPP to use the **`passthrough-parser`**. This tells the Inference Gateway to skip body inspection and purely apply scheduling logic (like `LeastRequests`) based on pod health and concurrency.
+To support non-LLM workloads like Triton RecML, we must explicitly configure the EPP to use the **`passthrough-parser`**. This tells the Inference Gateway to skip body inspection and purely apply scheduling logic (like `queue-scorer` for least-requests) based on pod health and concurrency.
 
 ---
 
