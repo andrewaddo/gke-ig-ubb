@@ -1,4 +1,16 @@
 #!/bin/bash
+# ==============================================================================
+# IMPORTANT WARNING: GKE INFERENCE GATEWAY PAYLOAD REQUIREMENT
+# 
+# Do NOT test the Gateway IP with standard Triton payloads (e.g., {"inputs": []}).
+# The Endpoint Picker (EPP) defaults to an openai-parser and expects LLM metadata.
+# Standard payloads will be rejected with a 400 Bad Request error.
+# 
+# This script uses the required "Universal Payload" (universal_payload.json) which
+# wraps the Triton tensor data alongside dummy `model` and `prompt` fields to 
+# successfully pass through the Gateway.
+# ==============================================================================
+
 GATEWAY_IP=10.138.0.32
 echo "Sending 100 requests to GKE Inference Gateway..."
 for i in $(seq 1 100); do
