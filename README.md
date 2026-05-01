@@ -130,10 +130,10 @@ kubectl apply -f manifests/01-triton-workloads.yaml \
 ```bash
 helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool \
   --version v1.4.0 \
-  --set inferencePool.modelServerType=custom \
-  --set inferencePool.targetPortNumber=8000 \
-  --set inferencePool.modelServers.matchLabels.pool=unified-recml-pool \
-  --set provider.name=gke
+  -f helm-values.yaml
+
+# Patch the deployment to explicitly use the custom plugins configuration
+kubectl patch deployment unified-recml-pool-epp --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/args/9", "value": "/config/custom-plugins.yaml"}]'
 ```
 
 ### 3. Deploy Gateway and HTTPRoute
@@ -141,28 +141,23 @@ helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-exte
 kubectl apply -f manifests/13-inference-gateway.yaml
 ```
 
-### 4. Generate the Load Test Payload
-Create the heavy payload locally inside a testing pod (e.g., an Ubuntu `perf-client`):
+### 4. Create Testing Pod and Generate Payload
 ```bash
-python3 -c "import json; print(json.dumps({'inputs': [{'name': 'INPUT__0', 'shape': [1, 4096], 'datatype': 'FP32', 'data': [0.0]*4096}]}))" > payload.json
+# Deploy an Ubuntu testing pod (curlimages/curl is missing required utilities)
+kubectl run perf-client --image=ubuntu --command -- sleep infinity
+kubectl wait --for=condition=Ready pod/perf-client --timeout=60s
+kubectl exec perf-client -- apt-get update
+kubectl exec perf-client -- apt-get install -y curl
+
+# Generate the "Universal Payload" and copy it to the pod
+python3 -c "import json; print(json.dumps({'model': 'recml-model', 'prompt': 'dummy', 'inputs': [{'name': 'INPUT__0', 'shape': [1, 4096], 'datatype': 'FP32', 'data': [0.0]*4096}]}))" > universal_payload.json
+kubectl cp universal_payload.json perf-client:/tmp/universal_payload.json
 ```
 
-### 5. Run the Sustained Load Script
-You can use `run_load.sh` or execute this directly to simulate sustained traffic:
+### 5. Run the Load Test
+Use the provided `test_ig_universal.sh` script to send 100 concurrent requests and automatically verify the routing distribution across the L4 and G4 pods:
 ```bash
-GATEWAY_IP=$(kubectl get gateway triton-ubb-gateway -o jsonpath='{.status.addresses[0].value}')
-
-# Send sustained requests to trigger GPU HPA
-for i in $(seq 1 2000); do
-  curl -s -o /dev/null -X POST http://$GATEWAY_IP:80/v2/models/recml-model/infer \
-    -H "Content-Type: application/json" \
-    -d @payload.json &
-  
-  if [ $((i % 20)) -eq 0 ]; then
-    sleep 1 # Paces the test to avoid client-side connection drops
-  fi
-done
-wait
+./test_ig_universal.sh
 ```
 
 ### 6. Verify Active-Active Routing & Scaling
