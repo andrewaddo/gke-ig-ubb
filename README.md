@@ -21,7 +21,7 @@ graph TD
 - **Unified Endpoint:** A single Kubernetes Service (`triton-svc`) targets both L4 and G4 deployments via GKE Gateway.
 - **Intelligent Routing:** `GCPBackendPolicy` uses `balancingMode: IN_FLIGHT`. This ensures requests are distributed to pods based on their active concurrent request count, naturally balancing load between different hardware types.
 - **Native GPU Autoscaling:** Independent HPAs scale the L4 and G4 deployments using GKE's native `AutoscalingMetric` resource, which directly scrapes Triton's `nv_gpu_utilization` metric without needing external adapters.
-- **Node Auto-Provisioning (NAP):** Automatically provisions the required GPU nodes (L4 or G4) as the deployments scale up.
+- **Dedicated Autoscaling Node Pools:** The cluster utilizes explicitly defined, dedicated node pools for L4 and G4 hardware. These pools are configured to auto-scale from 0 to 8 nodes independently based on HPA pod demands.
 
 ---
 
