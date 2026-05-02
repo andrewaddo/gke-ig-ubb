@@ -19,21 +19,21 @@ graph TD
 ```
 
 - **Unified Endpoint:** A single Kubernetes Service (`triton-svc`) targets both L4 and G4 deployments via GKE Gateway.
-- **Intelligent Routing:** `GCPBackendPolicy` uses `balancingMode: IN_FLIGHT`. This ensures requests are distributed to pods based on their active concurrent request count, naturally balancing load between different hardware types.
+- **Intelligent Routing:** The Gateway uses an `ext-proc` sidecar called the **Endpoint Picker (EPP)**. The EPP is configured with the `queue-scorer` plugin, which evaluates the active request queue depth on every individual pod to naturally balance load between the fast G4s and slower L4s.
 - **Native GPU Autoscaling:** Independent HPAs scale the L4 and G4 deployments using GKE's native `AutoscalingMetric` resource, which directly scrapes Triton's `nv_gpu_utilization` metric without needing external adapters.
 - **Dedicated Autoscaling Node Pools:** The cluster utilizes explicitly defined, dedicated node pools for L4 and G4 hardware. These pools are configured to auto-scale from 0 to 8 nodes independently based on HPA pod demands.
 
 ---
 
-## Design Rationale: GKE Inference Gateway vs. UBB
+## Design Rationale: GKE Inference Gateway vs. standard UBB
 
-For this heterogeneous GPU balancing demo, we evaluated two primary routing strategies. While standard **Utilization-Based Balancing (UBB)** is stable and easier to configure, **GKE Inference Gateway** was chosen as the superior architectural path for the following reasons:
+For this heterogeneous GPU balancing demo, we evaluated two primary routing strategies. While standard **Utilization-Based Balancing (UBB)** (using a `GCPBackendPolicy`) is easier to configure, **GKE Inference Gateway** was chosen as the superior architectural path for the following reasons:
 
 | Feature | standard GKE Gateway + UBB | GKE Inference Gateway (GKE IG) |
 | :--- | :--- | :--- |
 | **Granularity** | **Zonal (NEG):** Balances based on the average utilization of a zone. | **Per-Pod:** Scrapes and makes decisions based on individual pod state. |
-| **Routing Logic** | **Metric-Based:** Relies on GCLB control plane aggregation (10-30s delay). | **Request-Based:** Per-request gRPC call (ext-proc) for millisecond precision. |
-| **Telemetry** | **Cloud Monitoring:** Metrics must be exported to and read from GCP APIs. | **Direct Scrape:** Endpoint Picker (EPP) scrapes Triton metrics directly. |
+| **Routing Logic** | **Metric-Based:** Relies on GCLB control plane aggregation (10-30s delay). | **Request-Based:** Per-request gRPC call (ext-proc) for millisecond precision via `queue-scorer`. |
+| **Telemetry** | **Cloud Monitoring:** Metrics must be exported to and read from GCP APIs. | **Direct Scrape:** Endpoint Picker (EPP) tracks in-flight request state directly. |
 | **Heterogeneous Fit** | **Reactive:** Adjusts as it sees queues back up over time. | **Proactive:** Instantly shifts traffic to faster pods (G4) as soon as L4s show load. |
 
 ### Conclusion
