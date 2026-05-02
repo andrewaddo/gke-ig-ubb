@@ -122,8 +122,15 @@ In standard GKE Gateway architectures, a `GCPBackendPolicy` is often used to def
 ### 1. Deploy the Cluster & Workloads
 ```bash
 ./deploy-cluster.sh
+
+# Deploy Triton pods, L4 Native HPA, and G4 GMP HPA
 kubectl apply -f manifests/01-triton-workloads.yaml \
-              -f manifests/02-triton-hpas.yaml
+              -f manifests/02-triton-hpas.yaml \
+              -f manifests/03-autoscaling-metrics.yaml \
+              -f manifests/04-g4-podmonitoring.yaml
+
+# Install the Custom Metrics Stackdriver Adapter (Required for G4 GMP metrics)
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/k8s-stackdriver/master/custom-metrics-stackdriver-adapter/deploy/production/adapter_new_resource_model.yaml
 ```
 
 ### 2. Deploy the Unified InferencePool via Helm

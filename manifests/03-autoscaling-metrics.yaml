@@ -1,0 +1,41 @@
+apiVersion: autoscaling.gke.io/v1beta1
+kind: AutoscalingMetric
+metadata:
+  name: l4-gpu-util
+  namespace: default
+spec:
+  metrics:
+  - pod:
+      containers:
+      - endpoint:
+          path: /metrics
+          port: metrics
+        metrics:
+        - gauge:
+            name: nv_gpu_utilization
+            prometheusMetricName: nv_gpu_utilization
+      selector:
+        matchLabels:
+          app: triton-recml
+          gpu: l4
+---
+apiVersion: autoscaling.gke.io/v1beta1
+kind: AutoscalingMetric
+metadata:
+  name: g4-gpu-util
+  namespace: default
+spec:
+  metrics:
+  - pod:
+      containers:
+      - endpoint:
+          path: /metrics
+          port: metrics
+        metrics:
+        - gauge:
+            name: nv_gpu_utilization
+            prometheusMetricName: nv_gpu_utilization
+      selector:
+        matchLabels:
+          app: triton-recml
+          gpu: g4

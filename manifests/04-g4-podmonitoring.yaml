@@ -1,0 +1,15 @@
+# Uses traditional GMP to scrape the G4 pod due to autoscaling.gke.io limitations
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: triton-monitoring-g4
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: triton-recml
+      gpu: g4
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s

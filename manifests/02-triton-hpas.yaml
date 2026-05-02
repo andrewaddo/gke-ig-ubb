@@ -34,7 +34,7 @@ spec:
   - type: Pods
     pods:
       metric:
-        name: autoscaling.gke.io|g4-gpu-util|nv_gpu_utilization
+        name: prometheus.googleapis.com|nv_gpu_utilization|gauge
       target:
         type: AverageValue
         averageValue: "600m"
