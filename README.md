@@ -179,3 +179,13 @@ If you notice that the HPA is stuck showing `<unknown>` for the target metric (e
 2. Find the `gke-metrics-agent` DaemonSet pod running on that node.
 3. Delete the pod to force a restart: `kubectl delete pod -n kube-system <agent-pod-name>`.
 4. Wait 2-3 minutes for the metrics pipeline to re-aggregate the time series.
+
+### Known Challenges: G4 Metric Aggregation
+While the L4 HPA is successfully reading and scaling based on `nv_gpu_utilization`, the G4 (RTX 6000) HPA currently remains in an `<unknown>` state.
+
+**Status as of May 2026:**
+*   **Pod Emission:** Verified. The Triton G4 pod is correctly serving metrics on port 8002.
+*   **Node Collection:** Verified. The `gke-metrics-agent` on the G4 node is successfully scraping the pod.
+*   **Aggregation Challenge:** In this specific cluster environment, the GKE native custom metrics pipeline (`autoscaling.gke.io/v1beta1`) is failing to aggregate the G4 time-series data into the Kubernetes API. 
+
+This issue is specific to the metrics aggregation layer. The core demo functionality—routing traffic across both L4 and G4 hardware via the Inference Gateway—is unaffected and fully operational.
