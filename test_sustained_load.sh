@@ -11,14 +11,14 @@ echo "Press Ctrl+C to terminate."
 
 # Run in an infinite loop
 while true; do
-  echo "Sending batch of 50 requests..."
-  for i in $(seq 1 50); do
+  echo "Sending firehose batch of 100 requests..."
+  for i in $(seq 1 100); do
     kubectl exec perf-client -- curl -s -o /dev/null -w "%{http_code}" -X POST http://$GATEWAY_IP:80/v2/models/recml-model/infer \
       -H "Content-Type: application/json" \
       -d @/tmp/universal_payload.json &
   done
   
-  # Wait for the batch to finish before starting the next to avoid overwhelming the perf-client pod
-  wait
+  # Small sleep to allow the perf-client to manage its process table, but NO 'wait'
+  sleep 0.1
   echo ""
 done
