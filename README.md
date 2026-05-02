@@ -134,6 +134,9 @@ helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-exte
 
 # Patch the deployment to explicitly use the custom plugins configuration
 kubectl patch deployment unified-recml-pool-epp --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/args/9", "value": "/config/custom-plugins.yaml"}]'
+
+# Apply the HealthCheckPolicy override to use Triton's /v2/health/ready endpoint
+kubectl apply -f manifests/10-healthcheck-override.yaml
 ```
 
 ### 3. Deploy Gateway and HTTPRoute

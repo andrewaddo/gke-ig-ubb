@@ -1,0 +1,19 @@
+# HealthCheckPolicy override to point the Gateway to Triton's correct readiness probe
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: unified-recml-pool
+  namespace: default
+spec:
+  default:
+    checkIntervalSec: 2
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /v2/health/ready
+        port: 8000
+    timeoutSec: 2
+  targetRef:
+    group: inference.networking.k8s.io
+    kind: InferencePool
+    name: unified-recml-pool
