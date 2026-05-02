@@ -4,6 +4,20 @@ This demo showcases GKE Inference Gateway's ability to intelligently route reque
 
 ## Architecture
 
+```mermaid
+graph TD
+    Client([Client / Load Test]) -->|HTTP POST| Gateway[GKE Inference Gateway]
+    Gateway <-->|gRPC ext-proc| EPP[Endpoint Picker sidecar]
+    EPP -.->|Calculates queue-scorer| RoutingDecision{Routing Decision}
+    RoutingDecision -->|Forward Request| Pool[InferencePool: unified-recml-pool]
+    
+    subgraph Heterogeneous GPU Pool
+        Pool -->|Route| L4[Triton Pod: NVIDIA L4]
+        Pool -->|Route| G4_1[Triton Pod: NVIDIA G4 / RTX 6000]
+        Pool -->|Route| G4_2[Triton Pod: NVIDIA G4 / RTX 6000]
+    end
+```
+
 - **Unified Endpoint:** A single Kubernetes Service (`triton-svc`) targets both L4 and G4 deployments via GKE Gateway.
 - **Intelligent Routing:** `GCPBackendPolicy` uses `balancingMode: IN_FLIGHT`. This ensures requests are distributed to pods based on their active concurrent request count, naturally balancing load between different hardware types.
 - **Native GPU Autoscaling:** Independent HPAs scale the L4 and G4 deployments using GKE's native `AutoscalingMetric` resource, which directly scrapes Triton's `nv_gpu_utilization` metric without needing external adapters.
@@ -201,6 +215,24 @@ If you notice that an HPA is stuck showing `<unknown>` for the target metric (e.
 During testing, we discovered that the GKE Native Custom Metrics pipeline (`autoscaling.gke.io/v1beta1`) consistently failed to aggregate metrics from the newer NVIDIA RTX 6000 (G4) instances in this environment, leaving the G4 HPA in a permanent `<unknown>` state.
 
 To unblock the demo, we implemented a **Hybrid Metrics Architecture**:
+
+```mermaid
+graph TD
+    subgraph L4 Architecture Native Custom Metrics
+        L4_Pod[Triton L4 Pod] -->|Scraped by| GKE_Agent[gke-metrics-agent]
+        GKE_Agent -->|autoscaling.gke.io| K8s_API_1[Kubernetes API]
+        K8s_API_1 -->|Scale| HPA_L4[L4 HPA]
+    end
+
+    subgraph G4 Architecture GMP + Stackdriver Adapter
+        G4_Pod[Triton G4 Pod] -->|Scraped by| GMP[Google Managed Prometheus]
+        GMP -->|Export| CloudMon[Cloud Monitoring]
+        CloudMon -->|Fetch| Adapter[Stackdriver Adapter]
+        Adapter -->|external.metrics.k8s.io| K8s_API_2[Kubernetes API]
+        K8s_API_2 -->|Scale| HPA_G4[G4 HPA]
+    end
+```
+
 *   **L4 Pods:** Continue to use the near-instantaneous GKE Native Custom Metrics pipeline (`AutoscalingMetric`).
 *   **G4 Pods:** Use the traditional Google Managed Prometheus (GMP) pipeline. A `PodMonitoring` resource instructs GMP to scrape the G4 pod, and the `custom-metrics-stackdriver-adapter` translates the Cloud Monitoring data back into the Kubernetes API (`prometheus.googleapis.com|nv_gpu_utilization|gauge`) for the HPA to read.
 
