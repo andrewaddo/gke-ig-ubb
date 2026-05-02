@@ -28,7 +28,5 @@ inferencePool:
   modelServers:
     matchLabels:
       pool: unified-recml-pool
-  healthCheck:
-    requestPath: /v2/health/ready
 provider:
   name: gke
