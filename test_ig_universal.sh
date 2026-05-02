@@ -11,8 +11,8 @@
 # successfully pass through the Gateway.
 # ==============================================================================
 
-GATEWAY_IP=10.138.0.32
-echo "Sending 100 requests to GKE Inference Gateway..."
+GATEWAY_IP=$(kubectl get gateway triton-inference-gateway -o jsonpath='{.status.addresses[0].value}')
+echo "Sending 100 requests to GKE Inference Gateway at $GATEWAY_IP..."
 for i in $(seq 1 100); do
   kubectl exec perf-client -- curl -s -o /dev/null -X POST http://$GATEWAY_IP:80/v2/models/recml-model/infer \
     -H "Content-Type: application/json" \

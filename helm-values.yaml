@@ -1,6 +1,10 @@
 # values.yaml for the InferencePool Helm chart
 inferenceExtension:
   replicas: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
   image:
     name: epp
     hub: registry.k8s.io/gateway-api-inference-extension
@@ -24,5 +28,7 @@ inferencePool:
   modelServers:
     matchLabels:
       pool: unified-recml-pool
+  healthCheck:
+    requestPath: /v2/health/ready
 provider:
   name: gke
