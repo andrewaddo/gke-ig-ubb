@@ -164,10 +164,20 @@ python3 -c "import json; print(json.dumps({'model': 'recml-model', 'prompt': 'du
 kubectl cp universal_payload.json perf-client:/tmp/universal_payload.json
 ```
 
-### 5. Run the Load Test
-Use the provided `test_ig_universal.sh` script to send 100 concurrent requests and automatically verify the routing distribution across the L4 and G4 pods:
+### 5. Run the Load Tests
+
+The repository includes two testing scripts to validate different aspects of the architecture:
+
+**1. Functional Load Test (`test_ig_universal.sh`)**
+Sends 100 paced requests to verify that the Gateway is correctly routing traffic and that the Universal Payload bypasses the LLM parser.
 ```bash
 ./test_ig_universal.sh
+```
+
+**2. Sustained HPA Stress Test (`test_sustained_load.sh`)**
+Sends a continuous "firehose" of heavy requests without pausing. Because the G4 (RTX 6000) is exceptionally fast, it requires sustained, high-concurrency bombardment to drive its GPU utilization above the 60% threshold required to trigger a scale-up event.
+```bash
+./test_sustained_load.sh &
 ```
 
 ### 6. Verify Active-Active Routing & Scaling
@@ -179,20 +189,19 @@ kubectl get hpa -w
 kubectl exec <POD_NAME> -c triton -- curl -s localhost:8002/metrics | grep nv_gpu_utilization
 ```
 ### Troubleshooting GKE Native Custom Metrics (HPA `<unknown>`)
-If you notice that the HPA is stuck showing `<unknown>` for the target metric (e.g., `autoscaling.gke.io|g4-gpu-util|nv_gpu_utilization`), it is likely that the internal GKE metrics agent on that specific node has crashed or become stuck trying to export to Cloud Monitoring.
+If you notice that an HPA is stuck showing `<unknown>` for the target metric (e.g., `autoscaling.gke.io|l4-gpu-util|nv_gpu_utilization`), it is likely that the internal GKE metrics agent on that specific node has crashed or become stuck trying to export to Cloud Monitoring.
 
 **To fix this:**
 1. Identify the node the pod is running on.
-2. Find the `gke-metrics-agent` DaemonSet pod running on that node.
+2. Find the `gke-metrics-agent` DaemonSet pod running on that node (`kubectl get pods -n kube-system -o wide | grep gke-metrics-agent`).
 3. Delete the pod to force a restart: `kubectl delete pod -n kube-system <agent-pod-name>`.
 4. Wait 2-3 minutes for the metrics pipeline to re-aggregate the time series.
 
-### Known Challenges: G4 Metric Aggregation
-While the L4 HPA is successfully reading and scaling based on `nv_gpu_utilization`, the G4 (RTX 6000) HPA currently remains in an `<unknown>` state.
+### Hybrid Metrics Architecture (L4 vs G4)
+During testing, we discovered that the GKE Native Custom Metrics pipeline (`autoscaling.gke.io/v1beta1`) consistently failed to aggregate metrics from the newer NVIDIA RTX 6000 (G4) instances in this environment, leaving the G4 HPA in a permanent `<unknown>` state.
 
-**Status as of May 2026:**
-*   **Pod Emission:** Verified. The Triton G4 pod is correctly serving metrics on port 8002.
-*   **Node Collection:** Verified. The `gke-metrics-agent` on the G4 node is successfully scraping the pod.
-*   **Aggregation Challenge:** In this specific cluster environment, the GKE native custom metrics pipeline (`autoscaling.gke.io/v1beta1`) is failing to aggregate the G4 time-series data into the Kubernetes API. 
+To unblock the demo, we implemented a **Hybrid Metrics Architecture**:
+*   **L4 Pods:** Continue to use the near-instantaneous GKE Native Custom Metrics pipeline (`AutoscalingMetric`).
+*   **G4 Pods:** Use the traditional Google Managed Prometheus (GMP) pipeline. A `PodMonitoring` resource instructs GMP to scrape the G4 pod, and the `custom-metrics-stackdriver-adapter` translates the Cloud Monitoring data back into the Kubernetes API (`prometheus.googleapis.com|nv_gpu_utilization|gauge`) for the HPA to read.
 
-This issue is specific to the metrics aggregation layer. The core demo functionality—routing traffic across both L4 and G4 hardware via the Inference Gateway—is unaffected and fully operational.
+This hybrid approach ensures both hardware pools successfully auto-scale based on their actual GPU utilization.
