@@ -50,8 +50,18 @@ By default, the GKE Inference Gateway EPP is optimized for **Large Language Mode
 
 Our **Triton RecML** workload uses the **KServe v2 / Triton API**, which sends a payload containing an `inputs` array instead of a `prompt`. This caused the EPP to return a `400 Bad Request` as it failed to find the expected LLM metadata.
 
-### The Solution: Passthrough Parser
-To support non-LLM workloads like Triton RecML, we must explicitly configure the EPP to use the **`passthrough-parser`**. This tells the Inference Gateway to skip body inspection and purely apply scheduling logic (like `queue-scorer` for least-requests) based on pod health and concurrency.
+### The Solution: Universal Payload Workaround
+Instead of attempting to configure a custom passthrough parser in the EPP (which can be unstable in v1.4.0), we implemented a "Universal Payload" workaround. We wrap the standard Triton `inputs` tensor data alongside dummy `model` and `prompt` fields. 
+
+The EPP successfully parses the dummy OpenAI fields and routes the request, while the underlying Triton pod ignores the extraneous data and processes the `inputs` array natively.
+
+```json
+{
+  "model": "recml-model",
+  "prompt": "dummy",
+  "inputs": [ { "name": "INPUT__0", "shape": [1, 4096], "datatype": "FP32", "data": [0.0] } ]
+}
+```
 
 ---
 
@@ -101,24 +111,13 @@ During our load testing, we observed significant differences between the heterog
    * *Root Cause:* The model execution is entirely offloaded to the GPU. The CPU is only responsible for lightweight HTTP handling.
    * *Fix:* Shifted the scaling metric entirely to GPU utilization.
 
-3. **Custom Metrics Stackdriver Adapter Overhead:**
-   * *Issue:* Attempting to use the legacy `custom-metrics-stackdriver-adapter` to fetch DCGM node metrics required complex Workload Identity IAM bindings and often failed to locate the correct metric.
-   * *Fix:* We adopted GKE's **New Native Custom Metrics** (`autoscaling.gke.io/v1beta1`). By configuring an `AutoscalingMetric` to directly scrape Triton's `/metrics` endpoint on port 8002 for `nv_gpu_utilization`, we bypassed Cloud Monitoring entirely. The HPA now reads the GPU state in near real-time directly from the pods.
+3. **Hybrid Custom Metrics Architecture:**
+   * *Issue:* Attempting to use the new Native Custom Metrics (`autoscaling.gke.io/v1beta1`) across the entire cluster failed because the backend Google Cloud aggregation pipeline could not process metrics from the newer G4 hardware, leaving the HPA stuck in `<unknown>`.
+   * *Fix:* We implemented a Hybrid Metrics Architecture. The L4 hardware scales using the fast, agentless Native pipeline, while the G4 hardware falls back to traditional Google Managed Prometheus (GMP) combined with the `custom-metrics-stackdriver-adapter` to ensure scaling works reliably across the heterogeneous pools.
 
 4. **Load Testing Client Saturation (`connection reset by peer`):**
    * *Issue:* Spawning thousands of parallel `curl` background processes in a naive bash script exhausted the `perf-client` pod's connection limits and caused Gateway 504 timeouts.
    * *Fix:* Used a batched load testing script with limited concurrency, utilizing a pre-generated JSON payload file to avoid shell string escaping issues and reduce client-side CPU overhead.
-
-5. **Triton Payload Parsing via Endpoint Picker:**
-   * *Issue:* The Endpoint Picker (EPP) defaults to the `openai-parser`, which expects a JSON payload containing `prompt` or `messages`. Standard KServe/Triton requests with only `inputs` are rejected with a `400 Bad Request`.
-   * *Fix:* We construct a "Universal Payload" that wraps the standard Triton tensor data alongside dummy `model` and `prompt` fields. This satisfies the EPP's parser, allowing the request to be routed, while Triton ignores the extraneous fields.
-   ```json
-   {
-     "model": "recml-model",
-     "prompt": "dummy",
-     "inputs": [ { "name": "INPUT__0", "shape": [1, 4096], "datatype": "FP32", "data": [0.0] } ]
-   }
-   ```
 
 ---
 
