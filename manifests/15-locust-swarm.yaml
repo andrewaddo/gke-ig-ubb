@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-script
+  namespace: default
+data:
+  locustfile.py: |
+    from locust import HttpUser, task, between
+    class TritonUser(HttpUser):
+        # Very short wait to generate intense load
+        wait_time = between(0.01, 0.05)
+        @task
+        def infer(self):
+            payload = {
+                "model": "recml-model",
+                "prompt": "dummy",
+                "inputs": [{"name": "INPUT__0", "shape": [1, 4096], "datatype": "FP32", "data": [0.0]*4096}]
+            }
+            self.client.post("/v2/models/recml-model/infer", json=payload)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-swarm
+  namespace: default
+spec:
+  replicas: 15
+  selector:
+    matchLabels:
+      app: locust-swarm
+  template:
+    metadata:
+      labels:
+        app: locust-swarm
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-nodepool: load-test-pool
+      containers:
+      - name: locust
+        image: locustio/locust
+        # Each of the 15 pods will independently simulate 40 users, giving us 600 total concurrent connections
+        # running indefinitely until we delete the deployment.
+        command: ["sh", "-c", "locust -f /locust/locustfile.py --headless -u 40 -r 10 --host http://10.138.0.114"]
+        volumeMounts:
+        - name: locust-script
+          mountPath: /locust
+      volumes:
+      - name: locust-script
+        configMap:
+          name: locust-script
