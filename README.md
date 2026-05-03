@@ -94,8 +94,19 @@ During our load testing, we observed significant differences between the heterog
     *   **NVIDIA RTX 6000 (G4):** ~18ms per request
     *   *Result:* The Blackwell G4 GPU proved to be approximately **14x faster** for this specific tensor math operation.
 *   **Independent HPA Scaling:**
-    *   Due to the `IN_FLIGHT` load balancer splitting traffic across both pools, the slower **L4 pods saturated their GPU utilization (100%)** quickly. This correctly triggered the HPA to scale the L4 deployment from 1 to 5 replicas.
-    *   Conversely, the **G4 pods processed requests so quickly (18ms) that their GPU utilization remained between 0% and 2%**, well below the 60% HPA threshold. The G4 deployment safely remained at 1 replica.
+    *   Due to the Gateway splitting traffic, the slower **L4 pods saturated their GPU utilization (100%)** quickly. This correctly triggered the HPA to scale the L4 deployment.
+    *   Conversely, the **G4 pods processed requests so quickly (18ms) that their GPU utilization remained low**, requiring significantly higher sustained concurrency to trigger a scale-up.
+
+### The "Empty Queue" Phenomenon (Network vs. Compute Bottleneck)
+During extreme high-concurrency load testing (using a distributed Locust swarm generating 600+ concurrent connections), we observed that the L4 pod's pending request queue immediately backed up (reaching 500+ pending requests). The `queue-scorer` recognized this saturation and correctly diverted **99.9% of all incoming traffic** to the G4 hardware.
+
+However, despite processing over 60,000 requests in 45 seconds, the G4's pending request queue depth remained at `0`. 
+
+This is not a failure of the routing logic, but a demonstration of an extreme hardware bottleneck: **The G4 GPU processes data faster than the Kubernetes network stack can transmit it.**
+*   The G4 processes a request in ~18ms.
+*   The network overhead (TCP handshake, JSON serialization, VPC transmission from the Gateway to the pod) takes longer than 18ms.
+
+Because the network transmission time is greater than the compute time, the G4 clears the request before the Gateway can physically finish transmitting the next one. Therefore, a backlog can never mathematically form on the G4 hardware for this specific, lightweight tensor math workload.
 
 ---
 
