@@ -150,7 +150,7 @@ In standard GKE Gateway architectures, a `GCPBackendPolicy` is often used to def
 ./deploy-cluster.sh
 
 # Deploy Triton pods, L4 Native HPA, and G4 GMP HPA
-kubectl apply -f manifests/01-triton-workloads.yaml \
+kubectl apply -f manifests/01-triton-workloads-fast.yaml \
               -f manifests/02-triton-hpas.yaml \
               -f manifests/03-autoscaling-metrics.yaml \
               -f manifests/04-g4-podmonitoring.yaml
@@ -211,10 +211,9 @@ This test proves that the Gateway protects the slower L4 pod by shifting 99.9% o
 This test proves that the Gateway perfectly balances raw queue depth when hardware speeds are equalized.
 
 1. **Slow down the G4 Pod:**
-   Apply the manifest that switches the G4 to the Python backend with a 260ms sleep:
+   Apply the alternate workload manifest that switches the G4 to the Python backend with a 260ms sleep:
    ```bash
-   # (Internal Note: This edit is applied to manifests/01-triton-workloads.yaml)
-   kubectl apply -f manifests/01-triton-workloads.yaml
+   kubectl apply -f manifests/01-triton-workloads-matched-speed.yaml
    ```
 2. **Deploy/Restart the Swarm:**
    ```bash
