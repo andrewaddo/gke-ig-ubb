@@ -189,23 +189,44 @@ kubectl exec perf-client -- apt-get install -y curl
 python3 -c "import json; print(json.dumps({'model': 'recml-model', 'prompt': 'dummy', 'inputs': [{'name': 'INPUT__0', 'shape': [1, 4096], 'datatype': 'FP32', 'data': [0.0]*4096}]}))" > universal_payload.json
 kubectl cp universal_payload.json perf-client:/tmp/universal_payload.json
 ```
-
 ### 5. Run the Load Tests
 
-The repository includes two testing scripts to validate different aspects of the architecture:
+> [!WARNING]
+> **Avoid Local Load Testing:** Do not use `test_sustained_load.sh` for high-concurrency testing. Spawning hundreds of local `kubectl exec` processes will overwhelm your local machine's CPU and process limits, causing system hangs and network timeouts. Use the **Distributed Locust Swarm** instead.
 
-**1. Functional Load Test (`test_ig_universal.sh`)**
-Sends 100 paced requests to verify that the Gateway is correctly routing traffic and that the Universal Payload bypasses the LLM parser.
-```bash
-./test_ig_universal.sh
-```
+#### Simulation 1: The Hardware Reality
+This test proves that the Gateway protects the slower L4 pod by shifting 99.9% of traffic to the G4 hardware.
 
-**2. Sustained HPA Stress Test (`test_sustained_load.sh`)**
-Sends a continuous "firehose" of heavy requests without pausing. Because the G4 (RTX 6000) is exceptionally fast, it requires sustained, high-concurrency bombardment to drive its GPU utilization above the 60% threshold required to trigger a scale-up event.
-```bash
-./test_sustained_load.sh &
-```
+1. **Deploy the Swarm:**
+   ```bash
+   kubectl apply -f manifests/15-locust-swarm.yaml
+   ```
+2. **Monitor Queues:**
+   ```bash
+   ./monitor_queue_depth.sh
+   ```
+3. **Observation:** You will see the L4 queue build up to ~500, while the G4 queue stays at 0 (clearing requests faster than the network can deliver them).
 
+#### Simulation 2: Matched-Speed Queue Equalization
+This test proves that the Gateway perfectly balances raw queue depth when hardware speeds are equalized.
+
+1. **Slow down the G4 Pod:**
+   Apply the manifest that switches the G4 to the Python backend with a 260ms sleep:
+   ```bash
+   # (Internal Note: This edit is applied to manifests/01-triton-workloads.yaml)
+   kubectl apply -f manifests/01-triton-workloads.yaml
+   ```
+2. **Deploy/Restart the Swarm:**
+   ```bash
+   kubectl rollout restart deployment locust-swarm
+   ```
+3. **Monitor Queues:**
+   ```bash
+   ./monitor_queue_depth.sh
+   ```
+4. **Observation:** You will see the queues on both the L4 and G4 build up simultaneously and stay within ~10% of each other (e.g., 310 vs 330).
+
+---
 ### 6. Verify Active-Active Routing & Scaling
 ```bash
 # Watch the HPA react to nv_gpu_utilization
