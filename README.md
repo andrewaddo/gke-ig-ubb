@@ -225,6 +225,12 @@ This test proves that the Gateway perfectly balances raw queue depth when hardwa
    ```
 4. **Observation:** You will see the queues on both the L4 and G4 build up simultaneously and stay within ~10% of each other (e.g., 310 vs 330).
 
+#### 🛑 Stop the Load Test
+To stop the Locust swarm and allow the pods to scale down, delete the deployment:
+```bash
+kubectl delete deployment locust-swarm
+```
+
 ---
 ### 6. Verify Active-Active Routing & Scaling
 ```bash
