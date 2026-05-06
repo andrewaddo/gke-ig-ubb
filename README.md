@@ -110,6 +110,16 @@ Based on our observations, we have formulated the following hypothesis regarding
 *   **The Decision:** The Gateway constantly routes new traffic to the G4 pool simply because their scores (0-1) are lower than the L4's score (20).
 *   **⚠️ Note:** This behavior is currently attributed to the Gateway's internal connection ledger. Whether the EPP is successfully weighting these connections or if it is purely count-based requires further empirical verification through internal EPP metric inspection.
 
+### Empirical Proof: The "Overflow Bucket" Test
+To verify this hypothesis, we performed a comparative load test by scaling the Locust swarm:
+
+| Scenario | Load Level | G4 State | L4 State (The "Overflow Bucket") |
+| :--- | :--- | :--- | :--- |
+| **Heavy Load** | ~300+ RPS | Persistently busy (2-5 connections) | **Saturated at 20 requests** |
+| **Light Load** | ~50 RPS | Frequently idle (0 connections) | **Drained to 0-3 requests** |
+
+*   **Conclusion:** When incoming demand is lower than the aggregate G4 capacity, the Gateway's "Least-Requests" logic naturally stops sending traffic to the slower L4 pod because the G4s are always "cheaper" (fewer connections). The L4 only receives traffic when the G4s are also saturated, acting as a high-latency safety valve or "overflow bucket."
+
 ---
 
 ## Enhanced Real-Time Monitoring
