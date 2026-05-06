@@ -102,6 +102,14 @@ To prevent slow pods (like the L4) from being permanently buried by request back
 *   **The Result:** Even under extreme load, the L4 queue depth is hard-capped at 20. Any additional requests sent by the Gateway are immediately rejected by Triton with a `503 Service Unavailable` error, forcing the Gateway to shift traffic to the G4 pool.
 *   **Significance:** This provides a critical safety net that protects the pod's RAM and ensures that the "In-Flight" metric in the Gateway eventually reflects the true saturation of the pod.
 
+### Routing Hypothesis: Throughput-Driven Least-Requests
+Based on our observations, we have formulated the following hypothesis regarding the Gateway's current balancing behavior:
+*   **The Logic:** The Gateway utilizes a "Least-Requests" (Total Active Connections) algorithm. It does not natively "know" that a G4 is faster than an L4.
+*   **The Throughput Effect:** Because the G4 Blackwell GPUs process requests in ~18ms, they "clear" their active connections almost instantly. This keeps their "In-Flight" count at or near zero.
+*   **The L4 Backlog:** Because the L4 GPUs process at ~260ms (and often have a queue), they hold onto active connections for much longer, keeping their "In-Flight" count at the saturation point (20).
+*   **The Decision:** The Gateway constantly routes new traffic to the G4 pool simply because their scores (0-1) are lower than the L4's score (20).
+*   **⚠️ Note:** This behavior is currently attributed to the Gateway's internal connection ledger. Whether the EPP is successfully weighting these connections or if it is purely count-based requires further empirical verification through internal EPP metric inspection.
+
 ---
 
 ## Enhanced Real-Time Monitoring
