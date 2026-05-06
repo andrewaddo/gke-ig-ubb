@@ -25,6 +25,8 @@ spec:
     - path:
         type: PathPrefix
         value: /
+    timeouts:
+      request: 60s
     backendRefs:
     - name: unified-recml-pool
       group: "inference.networking.k8s.io"
