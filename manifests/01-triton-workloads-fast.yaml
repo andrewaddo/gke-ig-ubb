@@ -57,6 +57,12 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
+          dynamic_batching {
+            default_queue_policy {
+              max_queue_size: 20
+              default_timeout_microseconds: 60000000
+            }
+          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -142,6 +148,12 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
+          dynamic_batching {
+            default_queue_policy {
+              max_queue_size: 20
+              default_timeout_microseconds: 60000000
+            }
+          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
