@@ -65,7 +65,6 @@ The EPP successfully parses the dummy OpenAI fields and routes the request, whil
 
 ---
 
-
 A critical nuance of the GKE Inference Gateway architecture (introduced in GKE 1.34+) is the distinction between what GKE manages and what the user must provide.
 
 **What GKE Manages:**
@@ -97,18 +96,26 @@ During our load testing, we observed significant differences between the heterog
     *   Due to the Gateway splitting traffic, the slower **L4 pods saturated their GPU utilization (100%)** quickly. This correctly triggered the HPA to scale the L4 deployment.
     *   Conversely, the **G4 pods processed requests so quickly (18ms) that their GPU utilization remained low**, requiring significantly higher sustained concurrency to trigger a scale-up.
 
-### Validating `queue-scorer` Routing Logic
-To definitively prove how the Inference Gateway evaluates heterogeneous hardware, we ran two specific simulations using a 600-connection distributed Locust Swarm.
+### Simulation 3: Hardware-Enforced Queue Protection
+To prevent slow pods (like the L4) from being permanently buried by request backlogs, we implemented hardware-level queue protection directly in Triton.
+*   **The Fix:** Added a `dynamic_batching` block with `max_queue_size: 20` to the Triton `config.pbtxt`.
+*   **The Result:** Even under extreme load, the L4 queue depth is hard-capped at 20. Any additional requests sent by the Gateway are immediately rejected by Triton with a `503 Service Unavailable` error, forcing the Gateway to shift traffic to the G4 pool.
+*   **Significance:** This provides a critical safety net that protects the pod's RAM and ensures that the "In-Flight" metric in the Gateway eventually reflects the true saturation of the pod.
 
-**Simulation 1: The Hardware Reality (Compute vs. Network Bottleneck)**
-In a real-world scenario with our default PyTorch model, the L4 processes at ~260ms, while the G4 processes at ~18ms.
-*   **The Result:** The L4 queue instantly backed up to 500+ requests. The Gateway recognized this and diverted **99.9%** of incoming traffic to the G4 (processing 60,000+ requests in 45s).
-*   **The "Empty Queue" Phenomenon:** Despite handling 60k requests, the G4's queue remained at `0`. This is because the G4 GPU computes the math faster than the Kubernetes network stack can physically transmit the next JSON payload over the VPC. A queue cannot mathematically form if the drain (compute) empties faster than the faucet (network) can pour.
+---
 
-**Simulation 2: Matched-Speed Queue Equalization**
-To prove that the Gateway *does* equalize queue depths when hardware is physically saturated, we artificially slowed down the G4 to match the L4's speed exactly (260ms per request) by injecting a programmatic sleep via Triton's Python backend.
-*   **The Result:** When bombarded with 600 concurrent connections, the network bottleneck was bypassed. The queues on *both* pods filled up simultaneously and stabilized perfectly (e.g., L4 Queue: 310, G4 Queue: 338).
-*   **Conclusion:** The `queue-scorer` flawlessly normalizes expected latency. If processing speeds are different, it aggressively favors the faster hardware to maintain throughput. If processing speeds are identical (or normalized), it perfectly balances the raw queue depths.
+## Enhanced Real-Time Monitoring
+
+The `monitor_queue_depth.sh` script has been upgraded to provide deeper insights into the cluster's performance. It now displays two critical metrics per pod in real-time:
+**`Queue Depth (+Requests Processed in interval)`**
+
+Example output:
+```text
+Time      | gsxqj(g4)       | msqfx(l4)      
+---------+----------------+----------------
+20:56:15  | 1 (+225)        | 20 (+26)       
+```
+*   **Insights:** This data empirically proves that the G4 pool processes ~8-9x more requests per interval than the L4 pool, while maintaining a near-zero queue depth compared to the L4's saturated queue of 20.
 
 ---
 
@@ -132,6 +139,11 @@ To prove that the Gateway *does* equalize queue depths when hardware is physical
    * *Issue:* Spawning thousands of parallel `curl` background processes in a naive bash script exhausted the `perf-client` pod's connection limits and caused Gateway 504 timeouts.
    * *Fix:* Used a batched load testing script with limited concurrency, utilizing a pre-generated JSON payload file to avoid shell string escaping issues and reduce client-side CPU overhead.
 
+5. **Gateway/Pod Timeout Mismatch (The "Ghost Request" Loop):**
+   * *Issue:* The L4 queue stayed stuck at 600+ even when the Gateway "thought" it was empty.
+   * *Root Cause:* The Gateway's default timeout (30s) was shorter than Triton's processing time for a deep queue. When the Gateway timed out, it decremented its "In-Flight" counter (making the pod look free), but Triton kept the request in its queue.
+   * *Fix:* Aligned the `HTTPRoute` request timeout and Triton's internal timeout to **60 seconds**. This ensures the Gateway maintains an accurate "In-Flight" count for the duration of the request's life in the pod's queue.
+
 ---
 
 ## Why GCPBackendPolicy is Omitted
@@ -143,7 +155,6 @@ In standard GKE Gateway architectures, a `GCPBackendPolicy` is often used to def
 3.  **Managed Intelligence:** The Inference Gateway pattern assumes that the EPP is the authoritative source for load balancing decisions, rendering the static configuration in a `GCPBackendPolicy` redundant.
 
 ---
-
 
 ### 1. Deploy the Cluster & Workloads
 ```bash
