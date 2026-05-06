@@ -1,4 +1,4 @@
-# L4 Triton Deployment (Natural Speed)
+# L4 Triton Deployment (Standardized Environment-Aware Code)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,49 +28,55 @@ spec:
         effect: "NoSchedule"
       initContainers:
       - name: generate-model
-        image: nvcr.io/nvidia/pytorch:25.05-py3
+        image: busybox
         command:
-        - python3
+        - sh
         - -c
         - |
-          import os
-          import torch
-          import torch.nn as nn
-          class HeavyModel(nn.Module):
-              def __init__(self):
-                  super().__init__()
-                  self.layer = nn.Linear(4096, 4096)
-              def forward(self, x):
-                  # Do some math to make it not instantaneous
-                  for _ in range(1000):
-                      x = self.layer(x)
-                      x = torch.relu(x)
-                  return x
-          model = HeavyModel()
-          dummy_input = torch.randn(1, 4096)
-          traced = torch.jit.trace(model, dummy_input)
-          os.makedirs("/models/recml-model/1", exist_ok=True)
-          traced.save("/models/recml-model/1/model.pt")
-          config = """name: "recml-model"
-          platform: "pytorch_libtorch"
+          mkdir -p /models/recml-model/1
+          cat <<'PYCONF' > /models/recml-model/config.pbtxt
+          name: "recml-model"
+          backend: "python"
           max_batch_size: 0
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
-          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
-          """
-          with open("/models/recml-model/config.pbtxt", "w") as f:
-              f.write(config)
+          instance_group [ { count: 1, kind: KIND_CPU } ]
+          PYCONF
+
+          # THE CODE IS NOW IDENTICAL
+          cat <<'PYMODEL' > /models/recml-model/1/model.py
+          import triton_python_backend_utils as pb_utils
+          import time
+          import os
+
+          class TritonPythonModel:
+              def execute(self, requests):
+                  # Read delay from environment variable
+                  delay = float(os.getenv("PROCESSING_DELAY", "0.26"))
+                  if delay > 0:
+                      time.sleep(delay)
+                  
+                  responses = []
+                  for request in requests:
+                      in_0 = pb_utils.get_input_tensor_by_name(request, "INPUT__0")
+                      out_tensor_0 = pb_utils.Tensor("OUTPUT__0", in_0.as_numpy())
+                      responses.append(pb_utils.InferenceResponse(output_tensors=[out_tensor_0]))
+                  return responses
+          PYMODEL
         volumeMounts:
         - name: model-repository
           mountPath: /models
       containers:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
+        env:
+        - name: PROCESSING_DELAY
+          value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
-          limits: { cpu: "3900m", memory: "8Gi", nvidia.com/gpu: 1 }
+          limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
@@ -83,7 +89,7 @@ spec:
       - name: model-repository
         emptyDir: {}
 ---
-# G4 Triton Deployment (Artificial Slowdown via Python Backend)
+# G4 Triton Deployment (Standardized Environment-Aware Code)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -119,31 +125,30 @@ spec:
         - -c
         - |
           mkdir -p /models/recml-model/1
-          
-          # Create Triton Config for Python Backend
           cat <<'PYCONF' > /models/recml-model/config.pbtxt
           name: "recml-model"
           backend: "python"
           max_batch_size: 0
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
-          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
+          instance_group [ { count: 1, kind: KIND_CPU } ]
           PYCONF
 
-          # Create Python Model Script with 0.26-second sleep to match L4 speed
+          # THE CODE IS NOW IDENTICAL
           cat <<'PYMODEL' > /models/recml-model/1/model.py
           import triton_python_backend_utils as pb_utils
           import time
-          import numpy as np
+          import os
 
           class TritonPythonModel:
               def execute(self, requests):
-                  # MATCH L4 SPEED
-                  time.sleep(0.26)
+                  # Read delay from environment variable
+                  delay = float(os.getenv("PROCESSING_DELAY", "0.26"))
+                  if delay > 0:
+                      time.sleep(delay)
                   
                   responses = []
                   for request in requests:
-                      # Just return the input as output
                       in_0 = pb_utils.get_input_tensor_by_name(request, "INPUT__0")
                       out_tensor_0 = pb_utils.Tensor("OUTPUT__0", in_0.as_numpy())
                       responses.append(pb_utils.InferenceResponse(output_tensors=[out_tensor_0]))
@@ -155,11 +160,14 @@ spec:
       containers:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
+        env:
+        - name: PROCESSING_DELAY
+          value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
-          limits: { cpu: "16", memory: "32Gi", nvidia.com/gpu: 1 }
+          limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http

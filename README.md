@@ -210,8 +210,8 @@ This test proves that the Gateway protects the slower L4 pod by shifting 99.9% o
 #### Simulation 2: Matched-Speed Queue Equalization
 This test proves that the Gateway perfectly balances raw queue depth when hardware speeds are equalized.
 
-1. **Slow down the G4 Pod:**
-   Apply the alternate workload manifest that switches the G4 to the Python backend with a 260ms sleep:
+1. **Standardize Workload Latency:**
+   Apply the standardized manifest which uses an environment variable `PROCESSING_DELAY` to pin both L4 and G4 pods to exactly ~260ms. This ensures byte-for-byte identical code while matching processing times.
    ```bash
    kubectl apply -f manifests/01-triton-workloads-matched-speed.yaml
    ```
@@ -241,13 +241,24 @@ kubectl get hpa -w
 kubectl exec <POD_NAME> -c triton -- curl -s localhost:8002/metrics | grep nv_gpu_utilization
 ```
 ### Troubleshooting GKE Native Custom Metrics (HPA `<unknown>`)
-If you notice that an HPA is stuck showing `<unknown>` for the target metric (e.g., `autoscaling.gke.io|l4-gpu-util|nv_gpu_utilization`), it is likely that the internal GKE metrics agent on that specific node has crashed or become stuck trying to export to Cloud Monitoring.
+If an HPA shows `<unknown>` for the target metric (e.g., `autoscaling.gke.io|l4-gpu-util|nv_gpu_utilization`), it indicates a break in the "data bridge" between the pod and the GKE control plane.
+
+**Common Causes:**
+1.  **Metric Agent Stream Error:** Check the logs of the `gke-metrics-agent` for `reading from stream failed: EOF`. This indicates the node has lost its handshake with the GKE regional metrics sink (UAS).
+2.  **Registration Cache Lag:** After multiple pod restarts or manifest changes, the GKE control plane may take **10-15 minutes** to re-register the new Pod IPs and map them to the `AutoscalingMetric` resource.
+3.  **Stale Metric Descriptor:** The `AutoscalingMetric` resource can become "zombied" if the pod selector matches multiple terminating/pending pods during a rolling update.
 
 **To fix this:**
-1. Identify the node the pod is running on.
-2. Find the `gke-metrics-agent` DaemonSet pod running on that node (`kubectl get pods -n kube-system -o wide | grep gke-metrics-agent`).
-3. Delete the pod to force a restart: `kubectl delete pod -n kube-system <agent-pod-name>`.
-4. Wait 2-3 minutes for the metrics pipeline to re-aggregate the time series.
+1.  **Restart the Agent:** Identify the node the pod is running on and delete the `gke-metrics-agent` pod on that specific node to force a fresh telemetry discovery.
+    ```bash
+    kubectl delete pod -n kube-system <agent-pod-name>
+    ```
+2.  **Hard Reset Registration:** If the restart fails, delete and recreate the `AutoscalingMetric` resource to flush the GKE control plane cache.
+    ```bash
+    kubectl delete autoscalingmetric l4-gpu-util
+    kubectl apply -f manifests/03-autoscaling-metrics.yaml
+    ```
+3.  **The "Patience" Rule:** Allow at least **15 minutes** of sustained GPU load before declaring the HPA broken. The Native GKE pipeline prioritizes efficiency over high-frequency polling.
 
 ### Hybrid Metrics Architecture (L4 vs G4)
 During testing, we discovered that the GKE Native Custom Metrics pipeline (`autoscaling.gke.io/v1beta1`) consistently failed to aggregate metrics from the newer NVIDIA RTX 6000 (G4) instances in this environment, leaving the G4 HPA in a permanent `<unknown>` state.
