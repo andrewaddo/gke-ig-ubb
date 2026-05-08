@@ -8,7 +8,7 @@ metadata:
     pool: unified-recml-pool
     gpu: l4
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: triton-recml
@@ -57,12 +57,6 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
-          dynamic_batching {
-            default_queue_policy {
-              max_queue_size: 20
-              default_timeout_microseconds: 60000000
-            }
-          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -73,14 +67,14 @@ spec:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false"]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "3900m", memory: "8Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
-        - containerPort: 8002
+        - containerPort: 8080
           name: metrics
         volumeMounts:
         - name: model-repository
@@ -148,12 +142,6 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
-          dynamic_batching {
-            default_queue_policy {
-              max_queue_size: 20
-              default_timeout_microseconds: 60000000
-            }
-          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -164,14 +152,14 @@ spec:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false"]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "16", memory: "32Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
-        - containerPort: 8002
+        - containerPort: 8080
           name: metrics
         volumeMounts:
         - name: model-repository
