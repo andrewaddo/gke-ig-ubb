@@ -28,19 +28,43 @@ spec:
         effect: "NoSchedule"
       initContainers:
       - name: generate-model
-        image: busybox
+        image: nvcr.io/nvidia/pytorch:25.05-py3
+        env:
+        - name: LOOP_COUNT
+          value: "1000" # Standard L4 processing takes ~260ms with 1000 loops
         command:
-        - sh
+        - python3
         - -c
         - |
-          mkdir -p /models/recml-model/1
-          cat <<'PYCONF' > /models/recml-model/config.pbtxt
-          name: "recml-model"
-          backend: "python"
+          import os
+          import torch
+          import torch.nn as nn
+          class HeavyModel(nn.Module):
+              def __init__(self, loops):
+                  super().__init__()
+                  self.layer = nn.Linear(4096, 4096)
+                  self.loops = loops
+              def forward(self, x):
+                  # Do some math to make it not instantaneous
+                  for _ in range(self.loops):
+                      x = self.layer(x)
+                      x = torch.relu(x)
+                  return x
+          
+          loops = int(os.getenv("LOOP_COUNT", "1000"))
+          print(f"Generating model trace with {loops} internal loops.")
+          model = HeavyModel(loops)
+          dummy_input = torch.randn(1, 4096)
+          traced = torch.jit.trace(model, dummy_input)
+          os.makedirs("/models/recml-model/1", exist_ok=True)
+          traced.save("/models/recml-model/1/model.pt")
+          
+          config = """name: "recml-model"
+          platform: "pytorch_libtorch"
           max_batch_size: 0
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
-          instance_group [ { count: 1, kind: KIND_CPU } ]
+          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
           dynamic_batching {
             default_queue_policy {
               default_timeout_microseconds: 29000000
@@ -48,42 +72,20 @@ spec:
               allow_timeout_override: true
             }
           }
-          PYCONF
-
-          # THE CODE IS NOW IDENTICAL
-          cat <<'PYMODEL' > /models/recml-model/1/model.py
-          import triton_python_backend_utils as pb_utils
-          import time
-          import os
-
-          class TritonPythonModel:
-              def execute(self, requests):
-                  # Read delay from environment variable
-                  delay = float(os.getenv("PROCESSING_DELAY", "0.26"))
-                  if delay > 0:
-                      time.sleep(delay)
-                  
-                  responses = []
-                  for request in requests:
-                      in_0 = pb_utils.get_input_tensor_by_name(request, "INPUT__0")
-                      out_tensor_0 = pb_utils.Tensor("OUTPUT__0", in_0.as_numpy())
-                      responses.append(pb_utils.InferenceResponse(output_tensors=[out_tensor_0]))
-                  return responses
-          PYMODEL
+          """
+          with open("/models/recml-model/config.pbtxt", "w") as f:
+              f.write(config)
         volumeMounts:
         - name: model-repository
           mountPath: /models
       containers:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
-        env:
-        - name: PROCESSING_DELAY
-          value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
-          limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
+          limits: { cpu: "3900m", memory: "8Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
@@ -126,19 +128,46 @@ spec:
         effect: "NoSchedule"
       initContainers:
       - name: generate-model
-        image: busybox
+        image: nvcr.io/nvidia/pytorch:25.05-py3
+        env:
+        - name: LOOP_COUNT
+          # The G4 is ~14.5x faster than the L4. 
+          # To make it take ~260ms (the speed of an L4 running 1000 loops), 
+          # we force the G4 to run ~14,500 loops.
+          value: "14500" 
         command:
-        - sh
+        - python3
         - -c
         - |
-          mkdir -p /models/recml-model/1
-          cat <<'PYCONF' > /models/recml-model/config.pbtxt
-          name: "recml-model"
-          backend: "python"
+          import os
+          import torch
+          import torch.nn as nn
+          class HeavyModel(nn.Module):
+              def __init__(self, loops):
+                  super().__init__()
+                  self.layer = nn.Linear(4096, 4096)
+                  self.loops = loops
+              def forward(self, x):
+                  # Do some math to make it not instantaneous
+                  for _ in range(self.loops):
+                      x = self.layer(x)
+                      x = torch.relu(x)
+                  return x
+          
+          loops = int(os.getenv("LOOP_COUNT", "1000"))
+          print(f"Generating model trace with {loops} internal loops.")
+          model = HeavyModel(loops)
+          dummy_input = torch.randn(1, 4096)
+          traced = torch.jit.trace(model, dummy_input)
+          os.makedirs("/models/recml-model/1", exist_ok=True)
+          traced.save("/models/recml-model/1/model.pt")
+          
+          config = """name: "recml-model"
+          platform: "pytorch_libtorch"
           max_batch_size: 0
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
-          instance_group [ { count: 1, kind: KIND_CPU } ]
+          instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
           dynamic_batching {
             default_queue_policy {
               default_timeout_microseconds: 29000000
@@ -146,42 +175,20 @@ spec:
               allow_timeout_override: true
             }
           }
-          PYCONF
-
-          # THE CODE IS NOW IDENTICAL
-          cat <<'PYMODEL' > /models/recml-model/1/model.py
-          import triton_python_backend_utils as pb_utils
-          import time
-          import os
-
-          class TritonPythonModel:
-              def execute(self, requests):
-                  # Read delay from environment variable
-                  delay = float(os.getenv("PROCESSING_DELAY", "0.26"))
-                  if delay > 0:
-                      time.sleep(delay)
-                  
-                  responses = []
-                  for request in requests:
-                      in_0 = pb_utils.get_input_tensor_by_name(request, "INPUT__0")
-                      out_tensor_0 = pb_utils.Tensor("OUTPUT__0", in_0.as_numpy())
-                      responses.append(pb_utils.InferenceResponse(output_tensors=[out_tensor_0]))
-                  return responses
-          PYMODEL
+          """
+          with open("/models/recml-model/config.pbtxt", "w") as f:
+              f.write(config)
         volumeMounts:
         - name: model-repository
           mountPath: /models
       containers:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
-        env:
-        - name: PROCESSING_DELAY
-          value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
-          limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
+          limits: { cpu: "16", memory: "32Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
