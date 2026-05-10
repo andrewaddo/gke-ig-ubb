@@ -102,13 +102,12 @@ To prevent slow pods (like the L4) from being permanently buried by request back
 *   **The Result:** Even under extreme load, the L4 queue depth is hard-capped at 20. Any additional requests sent by the Gateway are immediately rejected by Triton with a `503 Service Unavailable` error, forcing the Gateway to shift traffic to the G4 pool.
 *   **Significance:** This provides a critical safety net that protects the pod's RAM and ensures that the "In-Flight" metric in the Gateway eventually reflects the true saturation of the pod.
 
-### Routing Hypothesis: Throughput-Driven Least-Requests
-Based on our observations, we have formulated the following hypothesis regarding the Gateway's current balancing behavior:
-*   **The Logic:** The Gateway utilizes a "Least-Requests" (Total Active Connections) algorithm. It does not natively "know" that a G4 is faster than an L4.
-*   **The Throughput Effect:** Because the G4 Blackwell GPUs process requests in ~18ms, they "clear" their active connections almost instantly. This keeps their "In-Flight" count at or near zero.
-*   **The L4 Backlog:** Because the L4 GPUs process at ~260ms (and often have a queue), they hold onto active connections for much longer, keeping their "In-Flight" count at the saturation point (20).
-*   **The Decision:** The Gateway constantly routes new traffic to the G4 pool simply because their scores (0-1) are lower than the L4's score (20).
-*   **⚠️ Note:** This behavior is currently attributed to the Gateway's internal connection ledger. Whether the EPP is successfully weighting these connections or if it is purely count-based requires further empirical verification through internal EPP metric inspection.
+### Routing Fact: Active Queue-Scorer Balancing
+Based on our verified load tests, the Gateway utilizes the `queue-scorer` plugin via the Endpoint Picker (EPP) to intelligently route traffic across heterogeneous hardware:
+*   **The Logic:** The EPP actively scrapes the `nv_inference_pending_request_count` metric from Triton pods on port `8080` to determine the exact number of requests waiting in the queue.
+*   **The Throughput Effect:** Because the G4 Blackwell GPUs process requests in ~18ms, they drain their queues almost instantly. The EPP observes this queue drop and continually routes more traffic to them.
+*   **The L4 Backlog:** Because the L4 GPUs process at ~260ms, their queues stay populated much longer. The `queue-scorer` detects the higher pending request count and naturally throttles new traffic to the L4s to prevent them from becoming overwhelmed.
+*   **The Decision:** In a typical sustained load scenario, the EPP perfectly equalizes the queue depths across all pods (e.g., maintaining 150 pending requests per pod). To maintain this equilibrium, the Gateway dynamically routes **~14x more requests to the G4 pool** than the L4 pool, directly reflecting the underlying hardware performance differential without requiring hardcoded capacities.
 
 ### Empirical Proof: The "Overflow Bucket" Test
 To verify this hypothesis, we performed a comparative load test by scaling the Locust swarm:
@@ -159,18 +158,14 @@ Time      | gsxqj(g4)       | msqfx(l4)
 
 5. **Gateway/Pod Timeout Mismatch (The "Ghost Request" Loop):**
    * *Issue:* The L4 queue stayed stuck at 600+ even when the Gateway "thought" it was empty.
-   * *Root Cause:* The Gateway's default timeout (30s) was shorter than Triton's processing time for a deep queue. When the Gateway timed out, it decremented its "In-Flight" counter (making the pod look free), but Triton kept the request in its queue.
-   * *Fix:* Aligned the `HTTPRoute` request timeout and Triton's internal timeout to **60 seconds**. This ensures the Gateway maintains an accurate "In-Flight" count for the duration of the request's life in the pod's queue.
+   * *Root Cause:* The Gateway's default timeout (30s) was shorter than Triton's processing time for a deep queue. When the Gateway timed out, it dropped the connection to the client and decremented its "In-Flight" counter (making the pod look free to the Endpoint Picker). However, Triton kept the request alive in its internal queue, leading to the pod becoming overwhelmed with "ghost" traffic.
+   * *Fix:* We configured Triton's `config.pbtxt` to enforce a hard internal timeout of **29 seconds** (`default_timeout_microseconds: 29000000` with `timeout_action: REJECT`).
+   * *Result:* By forcing Triton to reject pending requests slightly *before* the Gateway's 30-second connection timeout, we ensure the Gateway and EPP are always cleanly notified of failures. This eliminates the Ghost Request loop natively.
 
----
-
-## Why GCPBackendPolicy is Omitted
-
-In standard GKE Gateway architectures, a `GCPBackendPolicy` is often used to define the `balancingMode` (e.g., `IN_FLIGHT`). However, in the **GKE Inference Gateway** architecture, this policy is omitted for the following reasons:
-
-1.  **EPP Takeover:** The **Endpoint Picker (EPP)** acts as the real-time "brain" for routing. It intercepts every request and selects the optimal Pod IP based on millisecond-fresh metrics.
-2.  **Incompatibility:** Manual `balancingMode` settings in a `GCPBackendPolicy` can conflict with the EPP's intelligent scheduling logic.
-3.  **Managed Intelligence:** The Inference Gateway pattern assumes that the EPP is the authoritative source for load balancing decisions, rendering the static configuration in a `GCPBackendPolicy` redundant.
+7. **EPP Metric Scraping for Triton (v1.4.0 Data Layer Overhaul):**
+   * *Issue:* The Gateway API Inference Extension `v1.4.0` deprecated the old metric scraping CLI flags and introduced a new `dataLayer` plugin system. However, the EPP defaults to scraping vLLM metrics (`vllm:num_requests_waiting`), which caused our `queue-scorer` to always see a queue depth of `0` for Triton pods, causing it to fall back to round-robin routing.
+   * *Fix:* We updated the Helm values to forcefully load the new `model-server-protocol-metrics` data layer using the `EndpointPickerConfig` schema (`v1alpha1`). We mapped the `vllm` queued requests spec to Triton's `nv_inference_pending_request_count` while leaving the `modelServerType` as `vllm` to bypass a bug in the Helm templates that injects crashing deprecated flags. We also had to re-add the deprecated `--model-server-metrics-port=8080` CLI flag, as the v1.4.0 datastore internally still relies on it to find the metrics port if it differs from the inference port.
+   * *Result:* The EPP successfully scrapes the Triton metrics on port 8080 and accurately calculates queue scores, enabling the 14x traffic skew towards the G4 nodes.
 
 ---
 
@@ -253,6 +248,10 @@ This test proves that the Gateway perfectly balances raw queue depth when hardwa
    ./monitor_queue_depth.sh
    ```
 4. **Observation:** You will see the queues on both the L4 and G4 build up simultaneously and stay within ~10% of each other (e.g., 310 vs 330).
+
+#### ⚠️ Understanding Locust Request Rates
+If you observe the total requests per second (RPS) dropping significantly during a load test, this is expected behavior when backend queues build up. 
+Locust simulates concurrent users **synchronously**. Each virtual user sends a request and *waits* for the response before sending the next one. If half of your simulated users are routed to slower L4 pods with deep queues, those users will hang until Triton responds or times out (up to 29 seconds). This bottlenecking reduces the overall RPS of the swarm, as users cannot send new requests while they are blocked waiting.
 
 #### 🛑 Stop the Load Test
 To stop the Locust swarm and allow the pods to scale down, delete the deployment:
