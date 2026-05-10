@@ -1,32 +1,5 @@
 #!/bin/bash
 
-# 1. Discover pods (safely), restricting only to known L4 and G4 pods to avoid irrelevant outputs
-POD_DATA=$(kubectl get pods --field-selector=status.phase=Running -l 'app=triton-recml,gpu in (l4, g4)' -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | head -n 8)
-
-# Parse into arrays
-names=()
-ips=()
-types=()
-prev_counts=()
-prev_failures=()
-
-while read -r name ip gpu; do
-    if [ -n "$name" ]; then
-        names+=("$name")
-        ips+=("$ip")
-        types+=("$gpu")
-        prev_counts+=(0)
-        prev_failures+=(0)
-    fi
-done <<< "$POD_DATA"
-
-num_pods=${#names[@]}
-
-if [ "$num_pods" -eq 0 ]; then
-    echo "No Triton pods found."
-    exit 1
-fi
-
 echo "=========================================================================="
 echo "Legend:"
 echo "  Q : Current Queue Depth (Pending Requests waiting in Triton)"
@@ -36,28 +9,62 @@ echo "  F : Failures (+Requests REJECTED due to timeout since last tick)"
 echo "=========================================================================="
 echo ""
 
-# Print Header
-printf "%-9s" "Time"
-for i in "${!names[@]}"; do
-    short_name=$(echo "${names[$i]}" | rev | cut -d'-' -f1 | rev)
-    printf " | %-24s" "$short_name(${types[$i]})"
-done
-echo ""
+PREV_POD_DATA=""
 
-# Print Separator
-printf -- "---------"
-for i in $(seq 1 $num_pods); do printf -- "+-------------------------"; done
-echo ""
-
-# Initialize counts
-first_run=true
-
-# 2. Monitor Loop
 while true; do
     TIME=$(date +%H:%M:%S)
     
+    # 1. Discover pods dynamically
+    POD_DATA=$(kubectl get pods --field-selector=status.phase=Running -l 'app=triton-recml,gpu in (l4, g4)' -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | sort | head -n 8)
+    
+    if [ "$POD_DATA" != "$PREV_POD_DATA" ]; then
+        # Parse into arrays
+        names=()
+        ips=()
+        types=()
+        prev_counts=()
+        prev_failures=()
+        
+        while read -r name ip gpu; do
+            if [ -n "$name" ]; then
+                names+=("$name")
+                ips+=("$ip")
+                types+=("$gpu")
+                prev_counts+=(0)
+                prev_failures+=(0)
+            fi
+        done <<< "$POD_DATA"
+        
+        num_pods=${#names[@]}
+        
+        if [ "$num_pods" -eq 0 ]; then
+            printf "%-9s | No Triton pods found. Waiting...\n" "$TIME"
+            PREV_POD_DATA="$POD_DATA"
+            sleep 4
+            continue
+        fi
+        
+        echo ""
+        echo "--- Pod topology changed. Updating monitoring view ---"
+        
+        # Print Header
+        printf "%-9s" "Time"
+        for i in "${!names[@]}"; do
+            short_name=$(echo "${names[$i]}" | rev | cut -d'-' -f1 | rev)
+            printf " | %-24s" "$short_name(${types[$i]})"
+        done
+        echo ""
+        
+        # Print Separator
+        printf -- "---------"
+        for i in $(seq 1 $num_pods); do printf -- "+-------------------------"; done
+        echo ""
+        
+        first_run=true
+        PREV_POD_DATA="$POD_DATA"
+    fi
+
     # Construct a single command to fetch all metrics at once
-    # q = pending (queue), s = success (counter), f = failures (REJECTED + CANCELED)
     cmd=""
     for ip in "${ips[@]}"; do
         if [ -n "$ip" ]; then
