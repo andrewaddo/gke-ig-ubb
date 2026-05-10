@@ -41,6 +41,13 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_CPU } ]
+          dynamic_batching {
+            default_queue_policy {
+              default_timeout_microseconds: 29000000
+              timeout_action: REJECT
+              allow_timeout_override: true
+            }
+          }
           PYCONF
 
           # THE CODE IS NOW IDENTICAL
@@ -73,14 +80,14 @@ spec:
         - name: PROCESSING_DELAY
           value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
-        - containerPort: 8002
+        - containerPort: 8080
           name: metrics
         volumeMounts:
         - name: model-repository
@@ -132,6 +139,13 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_CPU } ]
+          dynamic_batching {
+            default_queue_policy {
+              default_timeout_microseconds: 29000000
+              timeout_action: REJECT
+              allow_timeout_override: true
+            }
+          }
           PYCONF
 
           # THE CODE IS NOW IDENTICAL
@@ -164,14 +178,14 @@ spec:
         - name: PROCESSING_DELAY
           value: "0.26"
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "2", memory: "4Gi", nvidia.com/gpu: 1 }
         ports:
         - containerPort: 8000
           name: http
-        - containerPort: 8002
+        - containerPort: 8080
           name: metrics
         volumeMounts:
         - name: model-repository
