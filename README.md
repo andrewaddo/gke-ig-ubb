@@ -189,9 +189,6 @@ helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-exte
   --version v1.4.0 \
   -f helm-values.yaml
 
-# Patch the deployment to explicitly use the custom plugins configuration
-kubectl patch deployment unified-recml-pool-epp --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/args/9", "value": "/config/custom-plugins.yaml"}]'
-
 # Apply the HealthCheckPolicy override to use Triton's /v2/health/ready endpoint
 kubectl apply -f manifests/10-healthcheck-override.yaml
 ```
@@ -223,7 +220,7 @@ This test proves that the Gateway protects the slower L4 pod by shifting 99.9% o
 
 1. **Deploy the Swarm:**
    ```bash
-   kubectl apply -f manifests/15-locust-swarm.yaml
+   ./start_locust_test.sh
    ```
 2. **Monitor Queues:**
    ```bash
@@ -254,9 +251,9 @@ If you observe the total requests per second (RPS) dropping significantly during
 Locust simulates concurrent users **synchronously**. Each virtual user sends a request and *waits* for the response before sending the next one. If half of your simulated users are routed to slower L4 pods with deep queues, those users will hang until Triton responds or times out (up to 29 seconds). This bottlenecking reduces the overall RPS of the swarm, as users cannot send new requests while they are blocked waiting.
 
 #### 🛑 Stop the Load Test
-To stop the Locust swarm and allow the pods to scale down, delete the deployment:
+To stop the Locust swarm and allow the pods to scale down, delete the resources using the manifest file:
 ```bash
-kubectl delete deployment locust-swarm
+kubectl delete -f manifests/15-locust-swarm.yaml
 ```
 
 ---
