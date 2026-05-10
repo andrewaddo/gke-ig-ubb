@@ -8,7 +8,7 @@ metadata:
     pool: unified-recml-pool
     gpu: l4
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: triton-recml
