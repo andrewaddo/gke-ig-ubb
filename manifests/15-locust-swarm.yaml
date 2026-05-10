@@ -40,7 +40,7 @@ spec:
         image: locustio/locust
         # Each of the 15 pods will independently simulate 40 users, giving us 600 total concurrent connections
         # running indefinitely until we delete the deployment.
-        command: ["sh", "-c", "locust -f /locust/locustfile.py --headless -u 40 -r 10 --host http://10.138.0.114"]
+        command: ["sh", "-c", "locust -f /locust/locustfile.py --headless -u 40 -r 10 --host http://REPLACE_ME_DYNAMICALLY"]
         volumeMounts:
         - name: locust-script
           mountPath: /locust

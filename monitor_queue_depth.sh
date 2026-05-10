@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# 1. Discover pods (safely)
-POD_DATA=$(kubectl get pods -l app=triton-recml -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | head -n 8)
+# 1. Discover pods (safely), restricting only to known L4 and G4 pods to avoid irrelevant outputs
+POD_DATA=$(kubectl get pods -l 'app=triton-recml,gpu in (l4, g4)' -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | head -n 8)
 
 # Parse into arrays
 names=()
 ips=()
 types=()
 prev_counts=()
+prev_failures=()
 
 while read -r name ip gpu; do
     if [ -n "$name" ]; then
@@ -15,6 +16,7 @@ while read -r name ip gpu; do
         ips+=("$ip")
         types+=("$gpu")
         prev_counts+=(0)
+        prev_failures+=(0)
     fi
 done <<< "$POD_DATA"
 
@@ -25,17 +27,26 @@ if [ "$num_pods" -eq 0 ]; then
     exit 1
 fi
 
+echo "=========================================================================="
+echo "Legend:"
+echo "  Q : Current Queue Depth (Pending Requests waiting in Triton)"
+echo "  R : Total Routed (+Requests sent to this pod since last tick)"
+echo "  S : Successes (+Requests completed successfully since last tick)"
+echo "  F : Failures (+Requests REJECTED due to timeout since last tick)"
+echo "=========================================================================="
+echo ""
+
 # Print Header
 printf "%-9s" "Time"
 for i in "${!names[@]}"; do
     short_name=$(echo "${names[$i]}" | rev | cut -d'-' -f1 | rev)
-    printf " | %-15s" "$short_name(${types[$i]})"
+    printf " | %-24s" "$short_name(${types[$i]})"
 done
 echo ""
 
 # Print Separator
 printf -- "---------"
-for i in $(seq 1 $num_pods); do printf -- "+----------------"; done
+for i in $(seq 1 $num_pods); do printf -- "+-------------------------"; done
 echo ""
 
 # Initialize counts
@@ -46,16 +57,19 @@ while true; do
     TIME=$(date +%H:%M:%S)
     
     # Construct a single command to fetch all metrics at once
-    # q = pending (queue), s = success (counter)
+    # q = pending (queue), s = success (counter), f = failures (REJECTED + CANCELED)
     cmd=""
     for ip in "${ips[@]}"; do
         if [ -n "$ip" ]; then
-            cmd+="m=\$(curl -s http://$ip:8002/metrics); "
+            cmd+="m=\$(curl -s http://$ip:8080/metrics); "
             cmd+="q=\$(echo \"\$m\" | awk '/nv_inference_pending_request_count{/ {print \$2}'); "
             cmd+="s=\$(echo \"\$m\" | awk '/nv_inference_request_success{/ {print \$2}'); "
-            cmd+="echo -n \"\${q:-0} \${s:-0} \"; "
+            cmd+="f_rej=\$(echo \"\$m\" | awk '/nv_inference_request_failure.*reason=\"REJECTED\"/ {print \$2}'); "
+            cmd+="f_can=\$(echo \"\$m\" | awk '/nv_inference_request_failure.*reason=\"CANCELED\"/ {print \$2}'); "
+            cmd+="f=\$((\${f_rej:-0} + \${f_can:-0})); "
+            cmd+="echo -n \"\${q:-0} \${s:-0} \${f:-0} \"; "
         else
-            cmd+="echo -n \"0 0 \"; "
+            cmd+="echo -n \"0 0 0 \"; "
         fi
     done
 
@@ -66,23 +80,30 @@ while true; do
     printf "%-9s" "$TIME"
     
     for i in "${!ips[@]}"; do
-        q_idx=$((i * 2))
-        s_idx=$((i * 2 + 1))
+        q_idx=$((i * 3))
+        s_idx=$((i * 3 + 1))
+        f_idx=$((i * 3 + 2))
         
         curr_q=${raw_data[$q_idx]:-0}
         curr_s=${raw_data[$s_idx]:-0}
+        curr_f=${raw_data[$f_idx]:-0}
         
         if [ "$first_run" = true ]; then
-            delta=0
+            delta_s=0
+            delta_f=0
+            delta_r=0
         else
-            delta=$((curr_s - ${prev_counts[$i]}))
+            delta_s=$((curr_s - ${prev_counts[$i]}))
+            delta_f=$((curr_f - ${prev_failures[$i]}))
+            delta_r=$((delta_s + delta_f))
         fi
         
-        # Format: QueueDepth (+Processed)
-        display_val="$curr_q (+$delta)"
-        printf " | %-15s" "$display_val"
+        # Format: Q:Depth S:+Success F:+Failed R:+Routed
+        display_val="Q:$curr_q R:+$delta_r (S:+$delta_s F:+$delta_f)"
+        printf " | %-24s" "$display_val"
         
         prev_counts[$i]=$curr_s
+        prev_failures[$i]=$curr_f
     done
     echo ""
     

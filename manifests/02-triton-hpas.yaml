@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: triton-recml-l4
   minReplicas: 1
-  maxReplicas: 1
+  maxReplicas: 2
   metrics:
   - type: Pods
     pods:

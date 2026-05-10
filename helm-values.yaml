@@ -1,4 +1,3 @@
-# values.yaml for the InferencePool Helm chart
 inferenceExtension:
   replicas: 1
   resources:
@@ -11,19 +10,47 @@ inferenceExtension:
     tag: v1.4.0
     pullPolicy: Always
   extProcPort: 9002
+  flags:
+    v: 2
+    metrics-port: 9090
+    metrics-endpoint-auth: false
+    model-server-metrics-port: 8080
+  monitoring:
+    prometheus:
+      auth:
+        enabled: false
   pluginsCustomConfig:
-    custom-plugins.yaml: |
+    default-plugins.yaml: |
       apiVersion: inference.networking.x-k8s.io/v1alpha1
       kind: EndpointPickerConfig
+      featureGates:
+        - dataLayer
       plugins:
-      - type: queue-scorer
-        name: queue-scorer
+        - name: queue-scorer
+          type: queue-scorer
+        - name: model-server-protocol-metrics
+          type: model-server-protocol-metrics
+          parameters:
+            engineConfigs:
+              - name: vllm
+                queuedRequestsSpec: "nv_inference_pending_request_count"
+                runningRequestsSpec: "nv_inference_exec_count"
+                kvUsageSpec: ""
+                loraSpec: ""
+                cacheInfoSpec: ""
+        - name: metrics-data-source
+          type: metrics-data-source
+      data:
+        sources:
+          - pluginRef: metrics-data-source
+            extractors:
+              - pluginRef: model-server-protocol-metrics
       schedulingProfiles:
-      - name: default
-        plugins:
-        - pluginRef: queue-scorer
+        - name: default
+          plugins:
+            - pluginRef: queue-scorer
 inferencePool:
-  modelServerType: custom
+  modelServerType: vllm
   targetPortNumber: 8000
   modelServers:
     matchLabels:

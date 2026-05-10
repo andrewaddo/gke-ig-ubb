@@ -57,6 +57,13 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
+          dynamic_batching {
+            default_queue_policy {
+              default_timeout_microseconds: 29000000
+              timeout_action: REJECT
+              allow_timeout_override: true
+            }
+          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -67,7 +74,7 @@ spec:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "3900m", memory: "8Gi", nvidia.com/gpu: 1 }
@@ -142,6 +149,13 @@ spec:
           input [ { name: "INPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           output [ { name: "OUTPUT__0", data_type: TYPE_FP32, dims: [ 1, 4096 ] } ]
           instance_group [ { count: 1, kind: KIND_GPU, gpus: [ 0 ] } ]
+          dynamic_batching {
+            default_queue_policy {
+              default_timeout_microseconds: 29000000
+              timeout_action: REJECT
+              allow_timeout_override: true
+            }
+          }
           """
           with open("/models/recml-model/config.pbtxt", "w") as f:
               f.write(config)
@@ -152,7 +166,7 @@ spec:
       - name: triton
         image: nvcr.io/nvidia/tritonserver:25.05-py3
         command: ["/opt/tritonserver/bin/tritonserver"]
-        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false"]
+        args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
           requests: { cpu: "100m", memory: "2Gi" }
           limits: { cpu: "16", memory: "32Gi", nvidia.com/gpu: 1 }
