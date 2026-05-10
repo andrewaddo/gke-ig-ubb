@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 1. Discover pods (safely), restricting only to known L4 and G4 pods to avoid irrelevant outputs
-POD_DATA=$(kubectl get pods -l 'app=triton-recml,gpu in (l4, g4)' -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | head -n 8)
+POD_DATA=$(kubectl get pods --field-selector=status.phase=Running -l 'app=triton-recml,gpu in (l4, g4)' -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.podIP}{" "}{.metadata.labels.gpu}{"\n"}{end}' | head -n 8)
 
 # Parse into arrays
 names=()
