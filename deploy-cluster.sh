@@ -9,6 +9,7 @@ gcloud container clusters create $CLUSTER_NAME \
   --zone $ZONE \
   --release-channel "rapid" \
   --gateway-api=standard \
+  --enable-image-streaming \
   --num-nodes=2 \
   --machine-type=e2-standard-4
 
@@ -18,7 +19,8 @@ gcloud container node-pools create l4-pool \
   --zone $ZONE \
   --machine-type g2-standard-8 \
   --accelerator type=nvidia-l4,count=1,gpu-driver-version=latest \
-  --enable-autoscaling --min-nodes 0 --max-nodes 8
+  --enable-autoscaling --min-nodes 0 --max-nodes 8 \
+  --enable-image-streaming
 
 echo "Creating dedicated G4 Node Pool (Autoscaling 0-8)"
 gcloud container node-pools create g4-pool \
@@ -26,6 +28,7 @@ gcloud container node-pools create g4-pool \
   --zone $ZONE \
   --machine-type g4-standard-48 \
   --accelerator type=nvidia-rtx-pro-6000,count=1,gpu-driver-version=latest \
-  --enable-autoscaling --min-nodes 0 --max-nodes 8
+  --enable-autoscaling --min-nodes 0 --max-nodes 8 \
+  --enable-image-streaming
 
 echo "Cluster and Node Pools created successfully."
