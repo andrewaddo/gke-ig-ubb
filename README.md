@@ -134,6 +134,17 @@ Based on our verified load tests, the Gateway utilizes the `queue-scorer` plugin
 
 ---
 
+## EPP Extensibility & Future Improvements
+
+While the `queue-scorer` provides powerful out-of-the-box balancing, the **Endpoint Picker (EPP)** architecture in v1.4.0 is designed for deeper customization:
+
+- **Custom Metric Mapping (Data Layer):** The EPP is not limited to vLLM or Triton. Using the `model-server-protocol-metrics` plugin, you can map any arbitrary metric from your application (e.g., custom error rates, hardware temperature, or proprietary "health scores") to the EPP's internal scoring logic.
+- **Advanced Traffic Shedding:** To prevent "slower" hardware like L4 from failing under extreme load, you can configure the **`utilization-detector`** plugin. This allows you to set hard `queueDepthThresholds`. If a pod exceeds its threshold, the EPP will instantly stop routing traffic to it, providing a critical safety valve for heterogeneous pools.
+- **Weighted Plugin Scoring:** The EPP supports multiple scoring strategies simultaneously. You can apply relative weights to different plugins (e.g., giving the `prefix-cache-scorer` a weight of 3 and the `queue-scorer` a weight of 1) to prioritize data locality over raw queue length.
+- **Future: Explicit Node Weighting:** While the current system balances dynamically based on real-time queues, the plugin-based architecture supports future extensions for static node weighting (e.g., "always bias 10:1 towards G4"), providing even finer control for extremely diverse hardware environments.
+
+---
+
 ### 1. Deploy the Cluster & Workloads
 ```bash
 ./deploy-cluster.sh

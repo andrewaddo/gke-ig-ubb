@@ -28,7 +28,8 @@ spec:
         effect: "NoSchedule"
       initContainers:
       - name: generate-model
-        image: nvcr.io/nvidia/pytorch:25.05-py3
+        image: us-west1-docker.pkg.dev/gpu-launchpad-playground/triton-images/pytorch:25.05-py3
+        imagePullPolicy: Always
         command:
         - python3
         - -c
@@ -72,7 +73,8 @@ spec:
           mountPath: /models
       containers:
       - name: triton
-        image: nvcr.io/nvidia/tritonserver:25.05-py3
+        image: us-west1-docker.pkg.dev/gpu-launchpad-playground/triton-images/tritonserver:25.05-py3
+        imagePullPolicy: Always
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
@@ -120,7 +122,8 @@ spec:
         effect: "NoSchedule"
       initContainers:
       - name: generate-model
-        image: nvcr.io/nvidia/pytorch:25.05-py3
+        image: us-west1-docker.pkg.dev/gpu-launchpad-playground/triton-images/pytorch:25.05-py3
+        imagePullPolicy: Always
         command:
         - python3
         - -c
@@ -164,7 +167,8 @@ spec:
           mountPath: /models
       containers:
       - name: triton
-        image: nvcr.io/nvidia/tritonserver:25.05-py3
+        image: us-west1-docker.pkg.dev/gpu-launchpad-playground/triton-images/tritonserver:25.05-py3
+        imagePullPolicy: Always
         command: ["/opt/tritonserver/bin/tritonserver"]
         args: ["--model-repository=/models", "--allow-metrics=true", "--metrics-port=8080", "--strict-model-config=false", "--allow-grpc=false", "--http-header-forward-pattern="]
         resources:
