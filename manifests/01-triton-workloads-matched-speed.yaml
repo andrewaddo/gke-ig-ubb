@@ -13,6 +13,7 @@ spec:
     matchLabels:
       app: triton-recml
       pool: unified-recml-pool
+      gpu: l4
   template:
     metadata:
       labels:
@@ -113,6 +114,7 @@ spec:
     matchLabels:
       app: triton-recml
       pool: unified-recml-pool
+      gpu: g4
   template:
     metadata:
       labels:

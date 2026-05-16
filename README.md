@@ -121,7 +121,12 @@ Based on our verified load tests, the Gateway utilizes the `queue-scorer` plugin
    * *Issue:* Attempting to use the new Native Custom Metrics (`autoscaling.gke.io/v1beta1`) across the entire cluster failed because the backend Google Cloud aggregation pipeline could not process metrics from the newer G4 hardware, leaving the HPA stuck in `<unknown>`.
    * *Fix:* We implemented a Hybrid Metrics Architecture. The L4 hardware scales using the fast, agentless Native pipeline, while the G4 hardware falls back to traditional Google Managed Prometheus (GMP) combined with the `custom-metrics-stackdriver-adapter` to ensure scaling works reliably across the heterogeneous pools.
 
-4. **Gateway/Pod Timeout Mismatch (The "Ghost Request" Loop):**
+4. **HPA Metric Dilution via Overlapping Selectors:**
+   * *Issue:* The G4 HPA failed to scale out even when its target metric exceeded the threshold, getting stuck at diluted values like `430m/600m`.
+   * *Root Cause:* Both L4 and G4 `Deployment` manifests used an identical `spec.selector` (`pool: unified-recml-pool`). This caused the HPAs to aggregate metrics across *all* pods in the pool. Since the L4 pods did not export the Prometheus metric the G4 HPA was looking for, they contributed "0" values, mathematically dragging down the average and preventing the scale-up.
+   * *Fix:* We enforced strict isolation by adding the hardware-specific label (`gpu: l4` or `gpu: g4`) to the `Deployment` selectors. The Gateway's `InferencePool` remains unaffected as it uses a looser selector to bridge the deployments.
+
+5. **Gateway/Pod Timeout Mismatch (The "Ghost Request" Loop):**
    * *Issue:* The L4 queue stayed stuck at 600+ even when the Gateway "thought" it was empty.
    * *Root Cause:* The Gateway's default timeout (30s) was shorter than Triton's processing time for a deep queue. When the Gateway timed out, it dropped the connection to the client and decremented its "In-Flight" counter (making the pod look free to the Endpoint Picker). However, Triton kept the request alive in its internal queue, leading to the pod becoming overwhelmed with "ghost" traffic.
    * *Fix:* We configured Triton's `config.pbtxt` to enforce a hard internal timeout of **29 seconds** (`default_timeout_microseconds: 29000000` with `timeout_action: REJECT`).
