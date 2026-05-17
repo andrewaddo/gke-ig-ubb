@@ -82,6 +82,11 @@ while true; do
 
     # Execute and parse
     results=$(kubectl exec perf-client -- bash -c "$cmd" 2>/dev/null)
+    if [ -z "$results" ]; then
+        printf "%-9s | Error fetching metrics from perf-client. Check pod status.\n" "$TIME"
+        sleep 4
+        continue
+    fi
     read -a raw_data <<< "$results"
     
     printf "%-9s" "$TIME"

@@ -208,6 +208,16 @@ kubectl cp universal_payload.json perf-client:/tmp/universal_payload.json
 #### Simulation 1: The Hardware Reality
 This test proves that the Gateway protects the slower L4 pod by shifting 99.9% of traffic to the G4 hardware.
 
+**0. Provision the Load Test Pool (Optional if already created):**
+The Locust swarm requires a dedicated pool to avoid competing with Triton for resources.
+```bash
+gcloud container node-pools create load-test-pool \
+  --cluster ducdo-gke-ig-ubb \
+  --zone us-west1-a \
+  --machine-type e2-standard-32 \
+  --num-nodes 1
+```
+
 1. **Deploy the Swarm:**
    ```bash
    ./start_locust_test.sh
@@ -304,6 +314,8 @@ Normal   Pulling                  16m                kubelet                  sp
 
 ### Test script automatically detected new pods and updated the view
 
+With Image Streaming and working HPA, new pods are scaled up and traffic is balanced across them within minutes.
+
 ```bash
 $ ./monitor_queue_depth.sh 
 ==========================================================================
@@ -316,32 +328,95 @@ Legend:
 
 
 --- Pod topology changed. Updating monitoring view ---
-Time      | ct6hl(g4)                | ms8br(l4)               
+Time      | fwqxg(g4)                | wghvs(l4)               
 ---------+-------------------------+-------------------------
-19:56:03  | Q:267 R:+0 (S:+0 F:+0)   | Q:270 R:+0 (S:+0 F:+0)  
-19:56:12  | Q:298 R:+455 (S:+455 F:+0) | Q:299 R:+32 (S:+32 F:+0)
-19:56:20  | Q:297 R:+456 (S:+456 F:+0) | Q:299 R:+32 (S:+32 F:+0)
-```
-
-```bash
-19:59:35  | Q:298 R:+452 (S:+452 F:+0) | Q:299 R:+173 (S:+32 F:+141)
-19:59:43  | Q:296 R:+452 (S:+452 F:+0) | Q:298 R:+33 (S:+32 F:+1)
+10:59:18  | Q:298 R:+0 (S:+0 F:+0)   | Q:299 R:+0 (S:+0 F:+0)  
+10:59:26  | Q:296 R:+433 (S:+433 F:+0) | Q:300 R:+30 (S:+30 F:+0)
+10:59:34  | Q:297 R:+424 (S:+424 F:+0) | Q:299 R:+29 (S:+29 F:+0)
+10:59:41  | Q:300 R:+423 (S:+423 F:+0) | Q:296 R:+155 (S:+30 F:+125)
+10:59:49  | Q:297 R:+427 (S:+427 F:+0) | Q:298 R:+97 (S:+30 F:+67)
+10:59:57  | Q:299 R:+424 (S:+424 F:+0) | Q:299 R:+29 (S:+29 F:+0)
 
 --- Pod topology changed. Updating monitoring view ---
-Time      | ct6hl(g4)                | ms8br(l4)                | r8l6h(l4)               
+Time      | fwqxg(g4)                | p47lm(l4)                | wghvs(l4)               
 ---------+-------------------------+-------------------------+-------------------------
-19:59:52  | Q:297 R:+0 (S:+0 F:+0)   | Q:299 R:+0 (S:+0 F:+0)   | Q:0 R:+0 (S:+0 F:+0)    
-20:00:00  | Q:265 R:+464 (S:+464 F:+0) | Q:293 R:+219 (S:+33 F:+186) | Q:39 R:+0 (S:+0 F:+0)   
-20:00:09  | Q:169 R:+466 (S:+466 F:+0) | Q:258 R:+35 (S:+32 F:+3) | Q:170 R:+30 (S:+30 F:+0)
-```
-
-```bash
-20:08:47  | Q:196 R:+466 (S:+466 F:+0) | Q:200 R:+124 (S:+33 F:+91) | Q:199 R:+126 (S:+33 F:+93)
-20:08:55  | Q:198 R:+463 (S:+463 F:+0) | Q:198 R:+33 (S:+32 F:+1) | Q:199 R:+32 (S:+32 F:+0)
+11:00:05  | Q:296 R:+0 (S:+0 F:+0)   | Q:0 R:+0 (S:+0 F:+0)     | Q:299 R:+0 (S:+0 F:+0)  
+11:00:13  | Q:296 R:+428 (S:+428 F:+0) | Q:0 R:+0 (S:+0 F:+0)     | Q:298 R:+223 (S:+30 F:+193)
+11:00:21  | Q:162 R:+438 (S:+438 F:+0) | Q:163 R:+22 (S:+22 F:+0) | Q:270 R:+30 (S:+30 F:+0)
+11:00:29  | Q:177 R:+434 (S:+434 F:+0) | Q:177 R:+30 (S:+30 F:+0) | Q:240 R:+30 (S:+30 F:+0)
 
 --- Pod topology changed. Updating monitoring view ---
-Time      | ct6hl(g4)                | p6fsg(g4)                | ms8br(l4)                | r8l6h(l4)               
+Time      | fwqxg(g4)                | rz9wr(g4)                | p47lm(l4)                | wghvs(l4)               
 ---------+-------------------------+-------------------------+-------------------------+-------------------------
-20:09:04  | Q:106 R:+0 (S:+0 F:+0)   | Q:109 R:+0 (S:+0 F:+0)   | Q:188 R:+0 (S:+0 F:+0)   | Q:187 R:+0 (S:+0 F:+0)  
-20:09:13  | Q:147 R:+473 (S:+473 F:+0) | Q:146 R:+464 (S:+464 F:+0) | Q:150 R:+125 (S:+33 F:+92) | Q:147 R:+124 (S:+33 F:+91)
+11:00:37  | Q:101 R:+0 (S:+0 F:+0)   | Q:103 R:+0 (S:+0 F:+0)   | Q:180 R:+0 (S:+0 F:+0)   | Q:209 R:+0 (S:+0 F:+0)  
+11:00:45  | Q:148 R:+448 (S:+448 F:+0) | Q:149 R:+436 (S:+436 F:+0) | Q:150 R:+75 (S:+30 F:+45) | Q:147 R:+221 (S:+31 F:+190)
+11:00:54  | Q:145 R:+475 (S:+475 F:+0) | Q:146 R:+476 (S:+476 F:+0) | Q:149 R:+52 (S:+33 F:+19) | Q:148 R:+33 (S:+33 F:+0)
+```
+
+## Execution Log: Teardown & Rebuild
+
+### Phase 1: Teardown (Destructive Cleanup)
+
+```bash
+# 1. Clear high-level Gateway and Routing resources
+kubectl delete -f manifests/13-inference-gateway.yaml --ignore-not-found=true
+
+# 2. Uninstall the Endpoint Picker (EPP)
+helm uninstall unified-recml-pool || true
+
+# 3. Delete Triton workloads, HPAs, and Metric definitions
+kubectl delete -f manifests/01-triton-workloads-fast.yaml \
+               -f manifests/02-triton-hpas.yaml \
+               -f manifests/03-autoscaling-metrics.yaml \
+               -f manifests/04-g4-podmonitoring.yaml --ignore-not-found=true
+
+# 4. Delete the GKE Cluster (Wipes node pools and all internal state)
+gcloud container clusters delete ducdo-gke-ig-ubb --zone us-west1-a --quiet
+```
+
+### Phase 2: Rebuild & Infrastructure Validation
+
+```bash
+# 5. Execute core infrastructure script
+./deploy-cluster.sh
+
+# 6. Apply Workloads & Scaling Infrastructure
+kubectl apply -f manifests/01-triton-workloads-fast.yaml \
+              -f manifests/02-triton-hpas.yaml \
+              -f manifests/03-autoscaling-metrics.yaml \
+              -f manifests/04-g4-podmonitoring.yaml
+
+# 7. Install the Custom Metrics Stackdriver Adapter (Required for G4 scaling)
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/k8s-stackdriver/master/custom-metrics-stackdriver-adapter/deploy/production/adapter_new_resource_model.yaml
+
+# 8. Deploy the Inference Gateway (EPP) via Helm
+helm install unified-recml-pool oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool \
+  --version v1.4.0 \
+  -f helm-values.yaml
+
+# 9. Finalize Gateway & Health Check Policies
+kubectl apply -f manifests/10-healthcheck-override.yaml \
+              -f manifests/13-inference-gateway.yaml
+```
+
+### Phase 3: Ad-hoc Verification Commands
+
+```bash
+# Check Pod readiness and Node scaling
+kubectl get pods -o wide
+kubectl get nodes
+
+# Verify Gateway IP assignment and Programmed status
+kubectl get gateway triton-inference-gateway
+
+# Set up testing client
+kubectl run perf-client --image=ubuntu --command -- sleep infinity
+kubectl wait --for=condition=Ready pod/perf-client
+kubectl exec perf-client -- apt-get update && kubectl exec perf-client -- apt-get install -y curl
+kubectl cp universal_payload.json perf-client:/tmp/universal_payload.json
+
+# Final E2E Connectivity Test
+GATEWAY_IP=$(kubectl get gateway triton-inference-gateway -o jsonpath='{.status.addresses[0].value}')
+kubectl exec perf-client -- curl -i -X POST http://$GATEWAY_IP:80/v2/models/recml-model/infer \
+    -H "Content-Type: application/json" -d @/tmp/universal_payload.json
 ```
